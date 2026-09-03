@@ -1,0 +1,17 @@
+.*
+!.editorconfig
+docs
+**/bin
+**/obj
+**/TestResults
+*.csr
+*.cer
+*.crt
+*.key
+*.p12
+*.p7b
+*.p7c
+*.pem
+*.pfx
+certificates
+tmp

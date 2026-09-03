@@ -1,0 +1,33 @@
+name: sbvz
+
+services:
+  api:
+    build:
+      context: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      SBVZ_MODE: ${SBVZ_MODE}
+      SBVZ_SUBSCRIBER_NUMBER: ${SBVZ_SUBSCRIBER_NUMBER}
+      SBVZ_TIMEOUT_SECONDS: ${SBVZ_TIMEOUT_SECONDS}
+      SBVZ_CLIENT_CERTIFICATE_PATH: /run/secrets/sbvz/client.pfx
+      SBVZ_CLIENT_CERTIFICATE_PASSWORD: ${SBVZ_CLIENT_CERTIFICATE_PASSWORD:-}
+      SBVZ_CLIENT_CERTIFICATE_PASSWORD_FILE: /run/secrets/sbvz/client-certificate-password
+      SBVZ_API_KEY: ${SBVZ_API_KEY:-}
+      SBVZ_API_KEY_FILE: /run/secrets/sbvz/api-key
+      SBVZ_AUDIT_S3_BUCKET: ${SBVZ_AUDIT_S3_BUCKET}
+      SBVZ_AUDIT_S3_ENDPOINT: ${SBVZ_AUDIT_S3_ENDPOINT}
+      SBVZ_AUDIT_S3_REGION: ${SBVZ_AUDIT_S3_REGION}
+      SBVZ_AUDIT_S3_ACCESS_KEY_ID: ${SBVZ_AUDIT_S3_ACCESS_KEY_ID:-}
+      SBVZ_AUDIT_S3_ACCESS_KEY_ID_FILE: /run/secrets/sbvz/audit-s3-access-key-id
+      SBVZ_AUDIT_S3_SECRET_ACCESS_KEY: ${SBVZ_AUDIT_S3_SECRET_ACCESS_KEY:-}
+      SBVZ_AUDIT_S3_SECRET_ACCESS_KEY_FILE: /run/secrets/sbvz/audit-s3-secret-access-key
+      SBVZ_AUDIT_PATIENT_REFERENCE_KEY_ID: ${SBVZ_AUDIT_PATIENT_REFERENCE_KEY_ID}
+      SBVZ_AUDIT_PATIENT_REFERENCE_KEY: ${SBVZ_AUDIT_PATIENT_REFERENCE_KEY:-}
+      SBVZ_AUDIT_PATIENT_REFERENCE_KEY_FILE: /run/secrets/sbvz/audit-patient-reference-key
+    volumes:
+      - type: bind
+        source: ${SBVZ_SECRET_DIRECTORY}
+        target: /run/secrets/sbvz
+        read_only: true
