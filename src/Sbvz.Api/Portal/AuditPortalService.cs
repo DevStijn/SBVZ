@@ -226,6 +226,7 @@ public sealed partial class AuditPortalService
             _sbvzOptions.Value.SubscriberNumber,
             PatientReference: null,
             recordId,
+            ApiClientId: null,
             new AuditActor(username, AuditPortalConstants.AdministratorRole),
             new AuditAccess(
                 Authorized: true,

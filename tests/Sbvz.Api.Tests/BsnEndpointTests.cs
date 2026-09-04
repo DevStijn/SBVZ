@@ -61,7 +61,11 @@ public sealed class BsnEndpointTests
         Assert.NotEqual(Guid.Empty, body.OperationId);
         Assert.All(
             application.AuditWriter.Entries,
-            entry => Assert.Equal(body.OperationId.ToString("D"), entry.OperationId));
+            entry =>
+            {
+                Assert.Equal(body.OperationId.ToString("D"), entry.OperationId);
+                Assert.Equal("test-client", entry.ApiClientId);
+            });
         Assert.Equal(2, application.AuditWriter.Entries.Count);
     }
 
@@ -437,9 +441,11 @@ public sealed class BsnEndpointTests
                 configuration.AddInMemoryCollection(
                     new Dictionary<string, string?>
                     {
-                        ["SBVZ_MODE"] = "Mock",
+                        ["SBVZ_MODE"] = "Acceptance",
                         ["SBVZ_SUBSCRIBER_NUMBER"] = "12345678",
+                        ["SBVZ_API_CLIENT_ID"] = "test-client",
                         ["SBVZ_API_KEY"] = ApiKey,
+                        ["SBVZ_API_KEY_SHA256"] = "51643eac9777b63a7b268174d1fd4276daedec9bc9ea0bc6e5abf69047bc54f6",
                         ["SBVZ_AUDIT_S3_BUCKET"] = "fictional-bucket",
                         ["SBVZ_AUDIT_S3_ENDPOINT"] = "https://storage.example",
                         ["SBVZ_AUDIT_S3_REGION"] = "fictional-region",
@@ -454,6 +460,7 @@ public sealed class BsnEndpointTests
             });
             builder.ConfigureTestServices(services =>
             {
+                TestSbvzServices.UseTestClient(services, sbvzClient);
                 services.RemoveAll<IAuditWriter>();
                 services.AddSingleton<IAuditWriter>(AuditWriter);
                 services.RemoveAll<ISecurityAlertService>();
@@ -461,11 +468,6 @@ public sealed class BsnEndpointTests
                 services.RemoveAll<IEmergencyStop>();
                 services.AddSingleton<IEmergencyStop>(new RecordingEmergencyStop());
 
-                if (sbvzClient is not null)
-                {
-                    services.RemoveAll<ISbvzClient>();
-                    services.AddSingleton(sbvzClient);
-                }
             });
         }
     }

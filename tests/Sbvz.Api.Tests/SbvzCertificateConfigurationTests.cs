@@ -47,7 +47,7 @@ public sealed class SbvzCertificateConfigurationTests
     }
 
     [Fact]
-    public void RejectsExpiredPkcs12OutsideMockMode()
+    public void RejectsExpiredPkcs12()
     {
         var directory = Directory.CreateTempSubdirectory("sbvz-certificate-");
 
@@ -80,7 +80,7 @@ public sealed class SbvzCertificateConfigurationTests
     }
 
     [Fact]
-    public void RejectsMissingModeInsteadOfFallingBackToMock()
+    public void RejectsMissingMode()
     {
         using var provider = CreateProvider(string.Empty, string.Empty, string.Empty);
 
@@ -93,7 +93,20 @@ public sealed class SbvzCertificateConfigurationTests
     }
 
     [Fact]
-    public void RejectsPasswordlessPkcs12OutsideMockMode()
+    public void RejectsRemovedMockMode()
+    {
+        using var provider = CreateProvider("Mock", string.Empty, string.Empty);
+
+        var exception = Assert.Throws<OptionsValidationException>(
+            () => provider.GetRequiredService<IOptions<SbvzOptions>>().Value);
+
+        Assert.Contains(
+            exception.Failures,
+            failure => failure.Contains(SbvzOptions.ModeVariable, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void RejectsPasswordlessPkcs12()
     {
         var directory = Directory.CreateTempSubdirectory("sbvz-certificate-");
 

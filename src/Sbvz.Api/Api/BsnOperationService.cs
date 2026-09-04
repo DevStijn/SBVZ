@@ -19,14 +19,17 @@ internal sealed partial class BsnOperationService(
 {
     public Task<BsnOperationResponse> LookupAsync(
         BsnLookupRequest request,
+        string apiClientId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ValidateApiClientId(apiClientId);
         ValidateContext(request.Actor, request.Access, request.Purpose, request.RecordId);
         RequireObject(request.Person, "person");
         var query = CreateQuery(request.Person, request.Address, bsn: null);
 
         return ExecuteAsync(
+            apiClientId,
             request.Actor,
             request.Access,
             request.RecordId,
@@ -38,15 +41,18 @@ internal sealed partial class BsnOperationService(
 
     public Task<BsnOperationResponse> VerifyAsync(
         BsnVerifyRequest request,
+        string apiClientId,
         CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
+        ValidateApiClientId(apiClientId);
         ValidateContext(request.Actor, request.Access, request.Purpose, request.RecordId);
         RequireObject(request.Person, "person");
         RequireValue(request.Bsn, 9, "bsn");
         var query = CreateQuery(request.Person, request.Address, request.Bsn);
 
         return ExecuteAsync(
+            apiClientId,
             request.Actor,
             request.Access,
             request.RecordId,
@@ -57,6 +63,7 @@ internal sealed partial class BsnOperationService(
     }
 
     private async Task<BsnOperationResponse> ExecuteAsync(
+        string apiClientId,
         ApiActor actor,
         ApiAccessContext access,
         string? recordId,
@@ -77,6 +84,7 @@ internal sealed partial class BsnOperationService(
         await WriteAuditAsync(
             CreateAuditEntry(
                 localReference,
+                apiClientId,
                 actor,
                 access,
                 recordId,
@@ -95,6 +103,7 @@ internal sealed partial class BsnOperationService(
             await WriteAuditAsync(
                 CreateAuditEntry(
                     localReference,
+                    apiClientId,
                     actor,
                     access,
                     recordId,
@@ -122,6 +131,7 @@ internal sealed partial class BsnOperationService(
                 await WriteAuditAsync(
                     CreateAuditEntry(
                         localReference,
+                        apiClientId,
                         actor,
                         access,
                         recordId,
@@ -157,6 +167,7 @@ internal sealed partial class BsnOperationService(
             await WriteAuditAsync(
                 CreateAuditEntry(
                     localReference,
+                    apiClientId,
                     actor,
                     access,
                     recordId,
@@ -183,6 +194,7 @@ internal sealed partial class BsnOperationService(
             await WriteAuditAsync(
                 CreateAuditEntry(
                     localReference,
+                    apiClientId,
                     actor,
                     access,
                     recordId,
@@ -203,6 +215,7 @@ internal sealed partial class BsnOperationService(
             await WriteAuditAsync(
                 CreateAuditEntry(
                     localReference,
+                    apiClientId,
                     actor,
                     access,
                     recordId,
@@ -229,6 +242,7 @@ internal sealed partial class BsnOperationService(
             await WriteAuditAsync(
                 CreateAuditEntry(
                     localReference,
+                    apiClientId,
                     actor,
                     access,
                     recordId,
@@ -253,6 +267,7 @@ internal sealed partial class BsnOperationService(
 
     private AuditEntry CreateAuditEntry(
         string operationId,
+        string apiClientId,
         ApiActor actor,
         ApiAccessContext access,
         string? recordId,
@@ -276,6 +291,7 @@ internal sealed partial class BsnOperationService(
             options.Value.SubscriberNumber,
             patientReference,
             recordId,
+            apiClientId,
             new AuditActor(actor.Id, actor.Role),
             new AuditAccess(
                 access.Authorized,
@@ -304,6 +320,17 @@ internal sealed partial class BsnOperationService(
             LogAuditWriteFailed(logger, exception, operationId);
             alerts.AuditStorageUnavailable(AuditStorageOperation.Write, operationId);
             throw new AuditUnavailableException(operationId, "Audit storage is unavailable.", exception);
+        }
+    }
+
+    private static void ValidateApiClientId(string apiClientId)
+    {
+        RequireValue(apiClientId, 100, nameof(apiClientId));
+
+        if (apiClientId.Any(character => !char.IsAsciiLetterOrDigit(character)
+                && character is not ('.' or '_' or '-')))
+        {
+            throw new ArgumentException("API client ID contains an invalid value.", nameof(apiClientId));
         }
     }
 

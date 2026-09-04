@@ -117,23 +117,29 @@ internal sealed class S3AuditReader(
         var content = await ReadBoundedAsync(response.ResponseStream, cancellationToken);
         var expectedIntegrity = response.Metadata["content-integrity"];
 
-        return DeserializeAndValidate(objectKey, content, expectedIntegrity, integrityProtector);
+        return DeserializeAndValidate(
+            objectKey,
+            options.Value.Prefix,
+            content,
+            expectedIntegrity,
+            integrityProtector);
     }
 
     internal static StoredAuditRecord DeserializeAndValidate(
         string objectKey,
+        string prefix,
         byte[] content,
         string? expectedIntegrity,
         IAuditIntegrityProtector integrityProtector)
     {
-        if (!integrityProtector.Verify(content, expectedIntegrity))
+        if (!integrityProtector.Verify(objectKey, content, expectedIntegrity))
         {
             throw new AuditStorageException($"Audit object '{objectKey}' failed its integrity check.");
         }
 
         try
         {
-            return ReadCurrentEntry(objectKey, content);
+            return ReadCurrentEntry(objectKey, prefix, content);
         }
         catch (JsonException exception)
         {
@@ -149,7 +155,10 @@ internal sealed class S3AuditReader(
         }
     }
 
-    private static StoredAuditRecord ReadCurrentEntry(string objectKey, byte[] content)
+    private static StoredAuditRecord ReadCurrentEntry(
+        string objectKey,
+        string prefix,
+        byte[] content)
     {
         var entry = JsonSerializer.Deserialize<AuditEntry>(content, AuditJson.SerializerOptions)
             ?? throw new AuditStorageException($"Audit object '{objectKey}' is empty.");
@@ -162,6 +171,15 @@ internal sealed class S3AuditReader(
 
         AuditEntryValidator.Validate(entry);
 
+        if (!string.Equals(
+                objectKey,
+                S3AuditWriter.CreateObjectKey(entry, prefix),
+                StringComparison.Ordinal))
+        {
+            throw new AuditStorageException(
+                $"Audit object '{objectKey}' does not match its recorded identity.");
+        }
+
         return new StoredAuditRecord(
             entry.SchemaVersion,
             entry.EventId,
@@ -173,6 +191,7 @@ internal sealed class S3AuditReader(
             entry.SubscriberNumber,
             entry.PatientReference,
             entry.RecordId,
+            entry.ApiClientId,
             entry.Actor.Id,
             entry.Actor.Role,
             entry.Access.Authorized,
@@ -264,6 +283,7 @@ internal sealed class S3AuditReader(
             effective.SubscriberNumber,
             effective.PatientReference ?? attempted.PatientReference,
             effective.RecordId,
+            effective.ApiClientId,
             effective.ActorId,
             effective.ActorRole,
             effective.Authorized,
@@ -291,6 +311,7 @@ internal sealed class S3AuditReader(
             || attempted.TraceId != completion.TraceId
             || attempted.SubscriberNumber != completion.SubscriberNumber
             || attempted.RecordId != completion.RecordId
+            || attempted.ApiClientId != completion.ApiClientId
             || !actorMatches
             || attempted.ActorRole != completion.ActorRole
             || attempted.Authorized != completion.Authorized
@@ -348,6 +369,7 @@ internal sealed record StoredAuditRecord(
     string SubscriberNumber,
     string? PatientReference,
     string? RecordId,
+    string? ApiClientId,
     string ActorId,
     string ActorRole,
     bool Authorized,

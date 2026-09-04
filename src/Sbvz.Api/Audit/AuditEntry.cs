@@ -11,6 +11,7 @@ public sealed record AuditEntry(
     string SubscriberNumber,
     string? PatientReference,
     string? RecordId,
+    string? ApiClientId,
     AuditActor Actor,
     AuditAccess Access,
     AuditOperation Operation,

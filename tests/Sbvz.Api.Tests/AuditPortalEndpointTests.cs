@@ -344,13 +344,8 @@ public sealed partial class AuditPortalEndpointTests
 
 internal sealed class AuditPortalApplicationFactory : WebApplicationFactory<Program>
 {
-    private readonly string _dataProtectionPath = Path.Combine(
-        Path.GetTempPath(),
-        $"sbvz-audit-portal-{Guid.NewGuid():N}");
-
     public AuditPortalApplicationFactory()
     {
-        Directory.CreateDirectory(_dataProtectionPath);
         TotpSecretBytes = [.. Enumerable.Range(1, 32).Select(value => (byte)value)];
     }
 
@@ -376,9 +371,11 @@ internal sealed class AuditPortalApplicationFactory : WebApplicationFactory<Prog
             configuration.AddInMemoryCollection(
                 new Dictionary<string, string?>
                 {
-                    ["SBVZ_MODE"] = "Mock",
+                    ["SBVZ_MODE"] = "Acceptance",
                     ["SBVZ_SUBSCRIBER_NUMBER"] = "12345678",
+                    ["SBVZ_API_CLIENT_ID"] = "test-client",
                     ["SBVZ_API_KEY"] = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+                    ["SBVZ_API_KEY_SHA256"] = "51643eac9777b63a7b268174d1fd4276daedec9bc9ea0bc6e5abf69047bc54f6",
                     ["SBVZ_AUDIT_S3_BUCKET"] = "fictional-bucket",
                     ["SBVZ_AUDIT_S3_ENDPOINT"] = "https://storage.example",
                     ["SBVZ_AUDIT_S3_REGION"] = "fictional-region",
@@ -391,13 +388,13 @@ internal sealed class AuditPortalApplicationFactory : WebApplicationFactory<Prog
                     ["SBVZ_AUDIT_PORTAL_USERNAME"] = "admin",
                     ["SBVZ_AUDIT_PORTAL_PASSWORD_HASH"] = passwordHash,
                     ["SBVZ_AUDIT_PORTAL_TOTP_SECRET"] = Base32Encoding.ToString(TotpSecretBytes),
-                    ["SBVZ_AUDIT_PORTAL_KEYS_PATH"] = _dataProtectionPath,
                     ["SBVZ_ALERT_WEBHOOK_URL"] = string.Empty,
                     ["SBVZ_ALERT_WEBHOOK_URL_FILE"] = string.Empty
                 });
         });
         builder.ConfigureTestServices(services =>
         {
+            TestSbvzServices.UseTestClient(services);
             services.RemoveAll<IAuditReader>();
             services.RemoveAll<IAuditWriter>();
             services.RemoveAll<ISecurityAlertService>();
@@ -409,15 +406,6 @@ internal sealed class AuditPortalApplicationFactory : WebApplicationFactory<Prog
         });
     }
 
-    protected override void Dispose(bool disposing)
-    {
-        base.Dispose(disposing);
-
-        if (disposing && Directory.Exists(_dataProtectionPath))
-        {
-            Directory.Delete(_dataProtectionPath, recursive: true);
-        }
-    }
 }
 
 internal sealed class FictionalAuditReader : IAuditReader
@@ -440,6 +428,7 @@ internal sealed class FictionalAuditReader : IAuditReader
             SubscriberNumber: "12345678",
             PatientReference: $"hmac-sha256:test-v1:{new string('a', 64)}",
             RecordId: "fictional-record",
+            ApiClientId: "test-client",
             ActorId: "fictional-user",
             ActorRole: "employee",
             Authorized: true,

@@ -18,9 +18,6 @@ ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
 
 COPY --from=build /app .
-RUN mkdir -p /var/lib/sbvz/data-protection \
-    && chown -R "$APP_UID:$APP_UID" /var/lib/sbvz \
-    && chmod 700 /var/lib/sbvz/data-protection
 
 USER $APP_UID
 ENTRYPOINT ["dotnet", "Sbvz.Api.dll"]

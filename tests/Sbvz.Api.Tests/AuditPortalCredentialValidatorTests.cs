@@ -23,8 +23,7 @@ public sealed class AuditPortalCredentialValidatorTests
                 Enabled = true,
                 Username = Username,
                 PasswordHash = hasher.HashPassword(new AuditPortalUser(Username), Password),
-                TotpSecret = secret,
-                DataProtectionKeysPath = Path.GetTempPath()
+                TotpSecret = secret
             });
         var validator = new AuditPortalCredentialValidator(options, hasher);
         var code = new Totp(secretBytes).ComputeTotp();
@@ -48,8 +47,7 @@ public sealed class AuditPortalCredentialValidatorTests
                 Enabled = true,
                 Username = Username,
                 PasswordHash = hasher.HashPassword(new AuditPortalUser(Username), Password),
-                TotpSecret = Base32Encoding.ToString(secretBytes),
-                DataProtectionKeysPath = Path.GetTempPath()
+                TotpSecret = Base32Encoding.ToString(secretBytes)
             });
         var validator = new AuditPortalCredentialValidator(options, hasher);
 

@@ -24,7 +24,7 @@ public sealed class S3AuditWriterTests
         Assert.Equal(receipt.ObjectKey, store.ObjectKey);
         Assert.Equal(receipt.ContentIntegrity, store.ContentIntegrity);
         Assert.NotNull(store.Content);
-        Assert.True(integrityProtector.Verify(store.Content, receipt.ContentIntegrity));
+        Assert.True(integrityProtector.Verify(receipt.ObjectKey, store.Content, receipt.ContentIntegrity));
 
         using var document = JsonDocument.Parse(store.Content);
         var root = document.RootElement;
@@ -76,6 +76,7 @@ public sealed class S3AuditWriterTests
             "12345678",
             $"hmac-sha256:test-v1:{new string('a', 64)}",
             "fictional-record",
+            "test-client",
             new AuditActor("fictional-user", "employee"),
             new AuditAccess(true, true, true, false),
             new AuditOperation(

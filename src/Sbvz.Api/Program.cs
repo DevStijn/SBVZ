@@ -1,10 +1,12 @@
 using System.Diagnostics;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.Options;
 using Sbvz.Api.Alerting;
 using Sbvz.Api.Api;
 using Sbvz.Api.Audit;
 using Sbvz.Api.Configuration;
+using Sbvz.Api.Health;
 using Sbvz.Api.OpenApi;
 using Sbvz.Api.Portal;
 using Sbvz.Api.Safety;
@@ -25,10 +27,14 @@ builder.WebHost.ConfigureKestrel(options =>
 
 builder.Services.AddAuditLogging(builder.Configuration);
 builder.Services.AddSbvzClient(builder.Configuration);
-builder.Services.AddInternalApi(builder.Configuration);
+builder.Services.AddInternalApi(builder.Configuration, builder.Environment);
 builder.Services.AddSecurityAlerting(builder.Configuration);
 builder.Services.AddEmergencyStop(builder.Configuration);
 builder.Services.AddAuditPortal(builder.Configuration, builder.Environment);
+builder.Services
+    .AddHealthChecks()
+    .AddCheck<EmergencyStopHealthCheck>("emergency-stop", tags: ["ready"])
+    .AddCheck<SbvzCertificateHealthCheck>("uzi-certificate", tags: ["ready"]);
 builder.Services.AddHsts(options =>
 {
     options.MaxAge = TimeSpan.FromDays(365);
@@ -75,8 +81,8 @@ app.UseStatusCodePages();
 app.UseStaticFiles();
 app.UseMiddleware<AuditPortalSecurityHeadersMiddleware>();
 app.UseRouting();
-app.UseRateLimiter();
 app.UseAuthentication();
+app.UseRateLimiter();
 app.Use(async (context, next) =>
 {
     if (HttpMethods.IsPost(context.Request.Method)
@@ -93,7 +99,6 @@ app.Use(async (context, next) =>
     await next(context);
 });
 app.UseAuthorization();
-app.UseMiddleware<ApiKeyAuthenticationMiddleware>();
 
 if (app.Environment.IsDevelopment())
 {
@@ -107,27 +112,24 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-app.MapGet("/health", () => TypedResults.Ok(new HealthResponse("ok")))
-    .WithName("Health")
-    .WithSummary("Service health")
-    .Produces<HealthResponse>();
-app.MapGet(
-        "/health/ready",
-        async (IEmergencyStop emergencyStop, CancellationToken cancellationToken) =>
+app.MapHealthChecks(
+        "/health",
+        new HealthCheckOptions
         {
-            var status = await emergencyStop.GetStatusAsync(cancellationToken);
-
-            return Results.Json(
-                new HealthResponse(
-                    status is EmergencyStopStatus.Inactive ? "ok" : "unavailable"),
-                statusCode: status is EmergencyStopStatus.Inactive
-                    ? StatusCodes.Status200OK
-                    : StatusCodes.Status503ServiceUnavailable);
+            Predicate = _ => false,
+            ResponseWriter = WriteHealthResponseAsync
+        })
+    .WithName("Health")
+    .WithSummary("Service health");
+app.MapHealthChecks(
+        "/health/ready",
+        new HealthCheckOptions
+        {
+            Predicate = registration => registration.Tags.Contains("ready"),
+            ResponseWriter = WriteHealthResponseAsync
         })
     .WithName("Readiness")
-    .WithSummary("Service readiness")
-    .Produces<HealthResponse>()
-    .Produces<HealthResponse>(StatusCodes.Status503ServiceUnavailable);
+    .WithSummary("Service readiness");
 app.MapBsnEndpoints();
 
 if (app.Services.GetRequiredService<IOptions<AuditPortalOptions>>().Value.Enabled)
@@ -136,3 +138,14 @@ if (app.Services.GetRequiredService<IOptions<AuditPortalOptions>>().Value.Enable
 }
 
 app.Run();
+
+static Task WriteHealthResponseAsync(
+    HttpContext context,
+    Microsoft.Extensions.Diagnostics.HealthChecks.HealthReport report)
+{
+    return context.Response.WriteAsJsonAsync(
+        new HealthResponse(
+            report.Status is Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Healthy
+                ? "ok"
+                : "unavailable"));
+}

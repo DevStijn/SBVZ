@@ -19,7 +19,7 @@ public sealed class BsnOperationServiceTests
         var service = CreateService(client, auditWriter);
         var request = CreateLookupRequest();
 
-        var response = await service.LookupAsync(request, CancellationToken.None);
+        var response = await service.LookupAsync(request, "test-client", CancellationToken.None);
 
         Assert.NotEqual(Guid.Empty, response.OperationId);
         Assert.Equal("078211529", response.Answer?.Person?.Bsn);
@@ -50,8 +50,8 @@ public sealed class BsnOperationServiceTests
         var service = CreateService(client, auditWriter);
         var request = CreateLookupRequest();
 
-        var first = await service.LookupAsync(request, CancellationToken.None);
-        var second = await service.LookupAsync(request, CancellationToken.None);
+        var first = await service.LookupAsync(request, "test-client", CancellationToken.None);
+        var second = await service.LookupAsync(request, "test-client", CancellationToken.None);
 
         Assert.NotEqual(first.OperationId, second.OperationId);
         Assert.Equal(first.OperationId.ToString("D"), auditWriter.Entries[0].OperationId);
@@ -69,7 +69,7 @@ public sealed class BsnOperationServiceTests
         var service = CreateService(client, auditWriter, alerts);
 
         await Assert.ThrowsAsync<AuditUnavailableException>(
-            () => service.LookupAsync(CreateLookupRequest(), CancellationToken.None));
+            () => service.LookupAsync(CreateLookupRequest(), "test-client", CancellationToken.None));
 
         Assert.False(client.WasCalled);
         Assert.Equal(
@@ -86,7 +86,7 @@ public sealed class BsnOperationServiceTests
         cancellationSource.Cancel();
 
         await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => service.LookupAsync(CreateLookupRequest(), cancellationSource.Token));
+            () => service.LookupAsync(CreateLookupRequest(), "test-client", cancellationSource.Token));
 
         Assert.Collection(
             auditWriter.Entries,
@@ -108,7 +108,7 @@ public sealed class BsnOperationServiceTests
                 Consent: false)
         };
 
-        var response = await service.LookupAsync(request, CancellationToken.None);
+        var response = await service.LookupAsync(request, "test-client", CancellationToken.None);
 
         var (operation, operationId) = Assert.Single(alerts.EmergencyAccessUses);
         Assert.Equal("lookup-bsn", operation);
@@ -135,7 +135,7 @@ public sealed class BsnOperationServiceTests
         };
 
         await Assert.ThrowsAsync<SbvzAccessDeniedException>(
-            () => service.LookupAsync(request, CancellationToken.None));
+            () => service.LookupAsync(request, "test-client", CancellationToken.None));
 
         Assert.False(client.WasCalled);
         Assert.Collection(
@@ -163,7 +163,7 @@ public sealed class BsnOperationServiceTests
             emergencyStop: new FixedEmergencyStop(status));
 
         var exception = await Assert.ThrowsAsync<EmergencyStopException>(
-            () => service.LookupAsync(CreateLookupRequest(), CancellationToken.None));
+            () => service.LookupAsync(CreateLookupRequest(), "test-client", CancellationToken.None));
 
         Assert.Equal(status, exception.Status);
         Assert.False(client.WasCalled);
@@ -190,7 +190,7 @@ public sealed class BsnOperationServiceTests
         });
         var sbvzOptions = Options.Create(new SbvzOptions
         {
-            Mode = nameof(SbvzMode.Mock),
+            Mode = nameof(SbvzMode.Acceptance),
             SubscriberNumber = "12345678"
         });
 

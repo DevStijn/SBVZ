@@ -18,7 +18,6 @@ internal sealed class SbvzOptions
 
 internal enum SbvzMode
 {
-    Mock,
     Acceptance,
     Production
 }

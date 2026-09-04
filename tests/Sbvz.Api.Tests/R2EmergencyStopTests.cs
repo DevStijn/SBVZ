@@ -11,7 +11,7 @@ namespace Sbvz.Api.Tests;
 public sealed class R2EmergencyStopTests
 {
     [Fact]
-    public async Task MockModeReadsActiveMarkerFromObjectStorage()
+    public async Task ReadsActiveMarkerFromObjectStorage()
     {
         var store = new RecordingEmergencyStopObjectStore { Exists = true };
         var writer = new RecordingEmergencyStopAuditWriter();
@@ -83,7 +83,7 @@ public sealed class R2EmergencyStopTests
             Options.Create(
                 new SbvzOptions
                 {
-                    Mode = nameof(SbvzMode.Mock),
+                    Mode = nameof(SbvzMode.Acceptance),
                     SubscriberNumber = "12345678"
                 }),
             writer,

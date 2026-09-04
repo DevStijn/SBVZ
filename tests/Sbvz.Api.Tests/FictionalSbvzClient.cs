@@ -1,6 +1,8 @@
-namespace Sbvz.Api.Sbvz;
+using Sbvz.Api.Sbvz;
 
-internal sealed class MockSbvzClient : ISbvzClient
+namespace Sbvz.Api.Tests;
+
+internal sealed class FictionalSbvzClient : ISbvzClient
 {
     private const string TestBsn = "078211529";
     private const string TestSurname = "Test-GG-Gevonden";
@@ -40,7 +42,9 @@ internal sealed class MockSbvzClient : ISbvzClient
                 [new SbvzMessage(
                     SbvzMessageType.Error,
                     query.Bsn is null ? "23001" : "2001",
-                    query.Bsn is null ? "Geen resultaat gevonden" : "Vraag heeft niet tot één persoon geleid")]);
+                    query.Bsn is null
+                        ? "Geen resultaat gevonden"
+                        : "Vraag heeft niet tot één persoon geleid")]);
 
         return Task.FromResult(response);
     }

@@ -8,11 +8,9 @@ internal sealed class AuditPortalOptions
     public const string PasswordHashFileVariable = "SBVZ_AUDIT_PORTAL_PASSWORD_HASH_FILE";
     public const string TotpSecretVariable = "SBVZ_AUDIT_PORTAL_TOTP_SECRET";
     public const string TotpSecretFileVariable = "SBVZ_AUDIT_PORTAL_TOTP_SECRET_FILE";
-    public const string DataProtectionKeysPathVariable = "SBVZ_AUDIT_PORTAL_KEYS_PATH";
 
     public bool Enabled { get; set; }
     public string Username { get; set; } = string.Empty;
     public string PasswordHash { get; set; } = string.Empty;
     public string TotpSecret { get; set; } = string.Empty;
-    public string DataProtectionKeysPath { get; set; } = string.Empty;
 }

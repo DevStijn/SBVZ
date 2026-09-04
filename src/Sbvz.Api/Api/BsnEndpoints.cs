@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using Microsoft.AspNetCore.RateLimiting;
 using Sbvz.Api.Safety;
 using Sbvz.Api.Sbvz;
@@ -10,6 +11,7 @@ public static class BsnEndpoints
     {
         var group = endpoints
             .MapGroup("/v1/bsn")
+            .RequireAuthorization(ApiAccessOptions.AuthorizationPolicy)
             .RequireRateLimiting(ApiAccessOptions.RateLimitPolicy)
             .WithTags("BSN");
 
@@ -55,7 +57,10 @@ public static class BsnEndpoints
         BsnOperationService service,
         HttpContext context)
     {
-        return ExecuteAsync(() => service.LookupAsync(request, context.RequestAborted));
+        return ExecuteAsync(() => service.LookupAsync(
+            request,
+            GetApiClientId(context.User),
+            context.RequestAborted));
     }
 
     private static Task<IResult> VerifyAsync(
@@ -63,7 +68,16 @@ public static class BsnEndpoints
         BsnOperationService service,
         HttpContext context)
     {
-        return ExecuteAsync(() => service.VerifyAsync(request, context.RequestAborted));
+        return ExecuteAsync(() => service.VerifyAsync(
+            request,
+            GetApiClientId(context.User),
+            context.RequestAborted));
+    }
+
+    private static string GetApiClientId(ClaimsPrincipal principal)
+    {
+        return principal.FindFirstValue(ClaimTypes.NameIdentifier)
+            ?? throw new InvalidOperationException("The authenticated API client has no identifier.");
     }
 
     private static async Task<IResult> ExecuteAsync(Func<Task<BsnOperationResponse>> operation)

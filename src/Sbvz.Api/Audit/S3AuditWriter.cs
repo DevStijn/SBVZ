@@ -15,8 +15,8 @@ internal sealed class S3AuditWriter(
         AuditEntryValidator.Validate(entry);
 
         var content = JsonSerializer.SerializeToUtf8Bytes(entry, AuditJson.SerializerOptions);
-        var contentIntegrity = integrityProtector.Protect(content);
         var objectKey = CreateObjectKey(entry, options.Value.Prefix);
+        var contentIntegrity = integrityProtector.Protect(objectKey, content);
 
         await objectStore.WriteOnceAsync(
             objectKey,

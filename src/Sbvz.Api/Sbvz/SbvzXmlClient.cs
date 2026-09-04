@@ -85,7 +85,7 @@ internal sealed class SbvzXmlClient(
         {
             SbvzMode.Acceptance => SbvzConstants.AcceptanceEndpoint,
             SbvzMode.Production => SbvzConstants.ProductionEndpoint,
-            _ => throw new InvalidOperationException("The XML client cannot run in mock mode.")
+            _ => throw new InvalidOperationException("Unsupported SBV-Z mode.")
         };
     }
 }

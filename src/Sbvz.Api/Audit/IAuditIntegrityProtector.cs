@@ -2,7 +2,7 @@ namespace Sbvz.Api.Audit;
 
 internal interface IAuditIntegrityProtector
 {
-    string Protect(ReadOnlySpan<byte> content);
+    string Protect(string objectKey, ReadOnlySpan<byte> content);
 
-    bool Verify(ReadOnlySpan<byte> content, string? integrityValue);
+    bool Verify(string objectKey, ReadOnlySpan<byte> content, string? integrityValue);
 }

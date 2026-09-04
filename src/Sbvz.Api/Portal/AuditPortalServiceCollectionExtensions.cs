@@ -3,8 +3,6 @@ using System.Security.Cryptography;
 using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
-using Microsoft.AspNetCore.DataProtection.KeyManagement;
-using Microsoft.AspNetCore.DataProtection.Repositories;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Options;
@@ -36,8 +34,6 @@ public static class AuditPortalServiceCollectionExtensions
                 options.TotpSecret = SecretValueResolver.Resolve(
                     configuration[AuditPortalOptions.TotpSecretVariable],
                     configuration[AuditPortalOptions.TotpSecretFileVariable]);
-                options.DataProtectionKeysPath =
-                    configuration[AuditPortalOptions.DataProtectionKeysPathVariable] ?? string.Empty;
             })
             .Validate(
                 options => !options.Enabled || IsValidUsername(options.Username),
@@ -48,29 +44,25 @@ public static class AuditPortalServiceCollectionExtensions
             .Validate(
                 options => !options.Enabled || IsStrongTotpSecret(options.TotpSecret),
                 $"{AuditPortalOptions.TotpSecretVariable} or {AuditPortalOptions.TotpSecretFileVariable} must contain a Base32-encoded key of at least 20 bytes when the audit portal is enabled.")
-            .Validate(
-                options => !options.Enabled || IsValidKeysPath(options.DataProtectionKeysPath),
-                $"{AuditPortalOptions.DataProtectionKeysPathVariable} must point to an existing absolute directory when the audit portal is enabled.")
             .ValidateOnStart();
 
         services
             .AddDataProtection()
-            .SetApplicationName("SBVZ.AuditPortal");
-        services
-            .AddOptions<KeyManagementOptions>()
-            .Configure<IOptions<AuditPortalOptions>, ILoggerFactory>(
-                (keyOptions, portalOptions, loggerFactory) =>
-                {
-                    if (portalOptions.Value.Enabled)
-                    {
-                        keyOptions.XmlRepository = new FileSystemXmlRepository(
-                            new DirectoryInfo(portalOptions.Value.DataProtectionKeysPath),
-                            loggerFactory);
-                    }
-                });
+            .SetApplicationName("SBVZ.AuditPortal")
+            .UseEphemeralDataProtectionProvider();
+        // Portal sessions intentionally expire on restart, so key-persistence warnings do not apply.
+        services.AddLogging(logging =>
+        {
+            logging.AddFilter(
+                "Microsoft.AspNetCore.DataProtection.Repositories.EphemeralXmlRepository",
+                LogLevel.Error);
+            logging.AddFilter(
+                "Microsoft.AspNetCore.DataProtection.KeyManagement.XmlKeyManager",
+                LogLevel.Error);
+        });
 
         services
-            .AddAuthentication(AuditPortalConstants.AuthenticationScheme)
+            .AddAuthentication()
             .AddCookie(AuditPortalConstants.AuthenticationScheme, options =>
             {
                 options.Cookie.Name = environment.IsDevelopment()
@@ -131,7 +123,13 @@ public static class AuditPortalServiceCollectionExtensions
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.OnRejected = (context, _) =>
             {
-                context.HttpContext.Response.Headers.RetryAfter = "60";
+                var retryAfterSeconds = context.Lease.TryGetMetadata(
+                    MetadataName.RetryAfter,
+                    out var retryAfter)
+                    ? Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds))
+                    : 60;
+                context.HttpContext.Response.Headers.RetryAfter = retryAfterSeconds.ToString(
+                    System.Globalization.CultureInfo.InvariantCulture);
                 var surface = context.HttpContext.Request.Path.StartsWithSegments("/v1")
                     ? AuthenticationSurface.InternalApi
                     : AuthenticationSurface.AuditPortal;
@@ -270,8 +268,4 @@ public static class AuditPortalServiceCollectionExtensions
         }
     }
 
-    private static bool IsValidKeysPath(string value)
-    {
-        return Path.IsPathFullyQualified(value) && Directory.Exists(value);
-    }
 }

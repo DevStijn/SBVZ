@@ -203,13 +203,8 @@ internal static class SbvzXmlProtocol
 
     private static SbvzAddressAnswer ParseAddress(XElement address)
     {
-        var addressFunction = OptionalText(address, "FunctieAdres", 10);
-
-        if (!string.IsNullOrEmpty(addressFunction)
-            && addressFunction is not ("Briefadres" or "Woonadres"))
-        {
-            throw new SbvzProtocolException("SBV-Z response contained an invalid address function.");
-        }
+        var addressFunction = ParseAddressFunction(
+            OptionalText(address, "FunctieAdres", 10));
 
         var houseLetter = OptionalComparedValue(address, "Huisletter", 1);
 
@@ -219,13 +214,7 @@ internal static class SbvzXmlProtocol
             throw new SbvzProtocolException("SBV-Z response contained an invalid house letter.");
         }
 
-        var houseNumberDesignation = OptionalComparedValue(address, "AanduidingBijHuisnummer", 2);
-
-        if (houseNumberDesignation is { Value.Length: > 0 }
-            && houseNumberDesignation.Value is not ("by" or "to"))
-        {
-            throw new SbvzProtocolException("SBV-Z response contained an invalid house number designation.");
-        }
+        var houseNumberDesignation = ParseHouseNumberDesignation(address);
 
         var postalCode = OptionalComparedValue(address, "Postcode", 6);
 
@@ -253,6 +242,31 @@ internal static class SbvzXmlProtocol
                 "AanduidingGegevensInOnderzoekAdres",
                 "DatumIngangOnderzoekAdres"),
             ParseForeignAddress(address));
+    }
+
+    private static string? ParseAddressFunction(string? value)
+    {
+        return value switch
+        {
+            null => null,
+            "Briefadres" or "briefadres" => "Briefadres",
+            "Woonadres" or "woonadres" => "Woonadres",
+            _ => throw new SbvzProtocolException(
+                "SBV-Z response contained an invalid address function.")
+        };
+    }
+
+    private static SbvzComparedValue? ParseHouseNumberDesignation(XElement address)
+    {
+        var value = OptionalComparedValue(address, "AanduidingBijHuisnummer", 3);
+
+        return value?.Value switch
+        {
+            null or "" or "by" or "to" => value,
+            "tot" => value with { Value = "to" },
+            _ => throw new SbvzProtocolException(
+                "SBV-Z response contained an invalid house number designation.")
+        };
     }
 
     private static SbvzRegistrationAnswer ParseRegistration(XElement registration)
@@ -333,7 +347,9 @@ internal static class SbvzXmlProtocol
                     : null,
                 index < startDates.Length
                     ? ReadOptionalDate(startDates[index], startDateName)
-                    : null))];
+                    : null))
+            .Where(investigation => investigation.Description is not null
+                || investigation.StartDate is not null)];
     }
 
     private static SbvzMessage[] ParseMessages(XElement responseMessage)

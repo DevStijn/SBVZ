@@ -21,17 +21,25 @@ Maak een lokale configuratie aan:
 cp .env.example .env
 ```
 
-Vul minimaal het abonneenummer, de interne API-sleutel, de audit-HMAC-sleutel en
-de gegevens van de auditopslag in. Genereer de twee lokale sleutels afzonderlijk:
+Vul minimaal het abonneenummer, de API-client-id, de audit-HMAC-sleutel en de
+gegevens van de auditopslag in. Maak de interne API-sleutel en bijbehorende hash
+aan in de lokale secretmap:
+
+```shell
+dotnet run --project tools/Sbvz.Credentials -- api \
+  --output /absolute/path/to/sbvz/certificates/test
+```
+
+Genereer daarnaast een afzonderlijke sleutel voor patiëntreferenties:
 
 ```shell
 openssl rand -base64 32
-openssl rand -base64 32
 ```
 
-Gebruik de eerste waarde voor `SBVZ_API_KEY` en de tweede voor
-`SBVZ_AUDIT_PATIENT_REFERENCE_KEY`. `.env` wordt uitsluitend in Development
-geladen.
+De aanroepende applicatie gebruikt `api-key`. De SBV-Z-service gebruikt alleen
+`api-key-sha256`; in Development mag de service de hash ook afleiden uit
+`SBVZ_API_KEY` of `SBVZ_API_KEY_FILE`. Gebruik de tweede waarde voor
+`SBVZ_AUDIT_PATIENT_REFERENCE_KEY`. `.env` wordt uitsluitend in Development geladen.
 
 ## Development
 
@@ -52,9 +60,9 @@ POST /v1/bsn/lookup
 POST /v1/bsn/verify
 ```
 
-OpenAPI en Scalar worden alleen in Development aangeboden. `Mock` gebruikt geen
-UZI-certificaat en maakt geen verbinding met SBV-Z, maar schrijft geaccepteerde
-operaties wel naar de geconfigureerde auditopslag.
+OpenAPI en Scalar worden alleen in Development aangeboden. Ook lokaal maakt de
+applicatie verbinding met de gekozen SBV-Z-omgeving en is een passend
+UZI-servercertificaat vereist.
 
 ## Controles
 
@@ -66,6 +74,19 @@ dotnet list SBVZ.sln package --vulnerable --include-transitive
 ```
 
 Compiler- en analyzerwaarschuwingen breken de build.
+
+De gewone tests gebruiken een geïsoleerde testimplementatie en maken geen
+verbinding met SBV-Z. De expliciete end-to-end-test controleert beide zoekpaden
+met een fictieve persoon uit de openbare RvIG-testdataset en doorloopt daarnaast
+alle officiële SBV-Z-scenario's voor zowel opvragen als verifiëren, inclusief
+goede, afwijkende en foutresultaten. De test leest de lokale `.env`, schrijft
+auditregels en werkt uitsluitend wanneer `SBVZ_MODE=Acceptance`:
+
+```shell
+dotnet test tests/Sbvz.Api.EndToEndTests/Sbvz.Api.EndToEndTests.csproj \
+  --configuration Release \
+  --explicit only
+```
 
 ## Docker
 
@@ -80,7 +101,6 @@ secretmap uit `.env` read-only op `/run/secrets/sbvz`.
 
 `SBVZ_MODE` is verplicht en ondersteunt:
 
-- `Mock`: lokale vaste antwoorden, zonder UZI-certificaat of SBV-Z-verkeer;
 - `Acceptance`: echte SBV-Z-acceptatieomgeving met UZI-testcertificaat;
 - `Production`: echte SBV-Z-productieomgeving met productiecertificaat.
 

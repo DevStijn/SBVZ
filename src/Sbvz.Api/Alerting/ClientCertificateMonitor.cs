@@ -14,8 +14,7 @@ internal sealed class ClientCertificateMonitor(
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        if (!Enum.TryParse<SbvzMode>(options.Value.Mode, ignoreCase: true, out var mode)
-            || mode is SbvzMode.Mock)
+        if (!Enum.TryParse<SbvzMode>(options.Value.Mode, ignoreCase: true, out _))
         {
             return;
         }

@@ -28,6 +28,7 @@ public sealed record AuditOperationRecord(
     string SubscriberNumber,
     string? PatientReference,
     string? RecordId,
+    string? ApiClientId,
     string ActorId,
     string ActorRole,
     bool Authorized,

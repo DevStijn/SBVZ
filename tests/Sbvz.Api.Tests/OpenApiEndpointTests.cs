@@ -2,6 +2,7 @@ using System.Net;
 using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Xunit;
 
@@ -190,9 +191,11 @@ public sealed class OpenApiEndpointTests
                 configuration.AddInMemoryCollection(
                     new Dictionary<string, string?>
                     {
-                        ["SBVZ_MODE"] = "Mock",
+                        ["SBVZ_MODE"] = "Acceptance",
                         ["SBVZ_SUBSCRIBER_NUMBER"] = "12345678",
+                        ["SBVZ_API_CLIENT_ID"] = "test-client",
                         ["SBVZ_API_KEY"] = ApiKey,
+                        ["SBVZ_API_KEY_SHA256"] = "51643eac9777b63a7b268174d1fd4276daedec9bc9ea0bc6e5abf69047bc54f6",
                         ["SBVZ_AUDIT_S3_BUCKET"] = "fictional-bucket",
                         ["SBVZ_AUDIT_S3_ENDPOINT"] = "https://storage.example",
                         ["SBVZ_AUDIT_S3_REGION"] = "fictional-region",
@@ -206,6 +209,7 @@ public sealed class OpenApiEndpointTests
                         ["SBVZ_ALERT_WEBHOOK_URL_FILE"] = string.Empty
                     });
             });
+            builder.ConfigureTestServices(services => TestSbvzServices.UseTestClient(services));
         }
     }
 }

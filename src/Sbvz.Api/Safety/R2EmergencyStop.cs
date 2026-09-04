@@ -199,6 +199,7 @@ internal sealed partial class R2EmergencyStop(
             sbvzOptions.Value.SubscriberNumber,
             PatientReference: null,
             RecordId: emergencyStopOptions.Value.ObjectKey,
+            ApiClientId: null,
             actor,
             new AuditAccess(
                 Authorized: true,

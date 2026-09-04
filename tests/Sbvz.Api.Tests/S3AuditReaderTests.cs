@@ -12,11 +12,13 @@ public sealed class S3AuditReaderTests
     {
         using var integrityProtector = CreateIntegrityProtector();
         var entry = CreateEntry();
+        var objectKey = CreateObjectKey(entry);
         var content = JsonSerializer.SerializeToUtf8Bytes(entry, AuditJson.SerializerOptions);
-        var contentIntegrity = integrityProtector.Protect(content);
+        var contentIntegrity = integrityProtector.Protect(objectKey, content);
 
         var result = S3AuditReader.DeserializeAndValidate(
-            "audit/2026/09/03/example.json",
+            objectKey,
+            "audit",
             content,
             contentIntegrity,
             integrityProtector);
@@ -34,13 +36,15 @@ public sealed class S3AuditReaderTests
     {
         using var integrityProtector = CreateIntegrityProtector();
         var entry = CreateEntry();
+        var objectKey = CreateObjectKey(entry);
         var content = JsonSerializer.SerializeToUtf8Bytes(entry, AuditJson.SerializerOptions);
-        var originalIntegrity = integrityProtector.Protect(content);
+        var originalIntegrity = integrityProtector.Protect(objectKey, content);
         content[^1] ^= 1;
 
         var exception = Assert.Throws<AuditStorageException>(
             () => S3AuditReader.DeserializeAndValidate(
-                "audit/2026/09/03/example.json",
+                objectKey,
+                "audit",
                 content,
                 originalIntegrity,
                 integrityProtector));
@@ -52,16 +56,19 @@ public sealed class S3AuditReaderTests
     public void RejectsAuditEntryWithoutIntegrityValue()
     {
         using var integrityProtector = CreateIntegrityProtector();
+        var entry = CreateEntry();
+        var objectKey = CreateObjectKey(entry);
         var content = JsonSerializer.SerializeToUtf8Bytes(
-            CreateEntry(),
+            entry,
             AuditJson.SerializerOptions);
 
         var exception = Assert.Throws<AuditStorageException>(
             () => S3AuditReader.DeserializeAndValidate(
-                "audit/2026/09/03/example.json",
+                objectKey,
+                "audit",
                 content,
                 expectedIntegrity: null,
-                integrityProtector));
+                integrityProtector: integrityProtector));
 
         Assert.Contains("integrity", exception.Message, StringComparison.Ordinal);
     }
@@ -71,12 +78,14 @@ public sealed class S3AuditReaderTests
     {
         using var integrityProtector = CreateIntegrityProtector();
         var entry = CreateEntry() with { SchemaVersion = 2 };
+        var objectKey = CreateObjectKey(entry);
         var content = JsonSerializer.SerializeToUtf8Bytes(entry, AuditJson.SerializerOptions);
-        var contentIntegrity = integrityProtector.Protect(content);
+        var contentIntegrity = integrityProtector.Protect(objectKey, content);
 
         var exception = Assert.Throws<AuditStorageException>(
             () => S3AuditReader.DeserializeAndValidate(
-                "audit/2026/09/03/newer.json",
+                objectKey,
+                "audit",
                 content,
                 contentIntegrity,
                 integrityProtector));
@@ -88,14 +97,17 @@ public sealed class S3AuditReaderTests
     public void RejectsDuplicateAuditJsonPropertyEvenWithValidIntegrity()
     {
         using var integrityProtector = CreateIntegrityProtector();
-        var original = JsonSerializer.Serialize(CreateEntry(), AuditJson.SerializerOptions);
+        var entry = CreateEntry();
+        var objectKey = CreateObjectKey(entry);
+        var original = JsonSerializer.Serialize(entry, AuditJson.SerializerOptions);
         var content = System.Text.Encoding.UTF8.GetBytes(
             original.Insert(1, "\"schemaVersion\":1,"));
-        var contentIntegrity = integrityProtector.Protect(content);
+        var contentIntegrity = integrityProtector.Protect(objectKey, content);
 
         var exception = Assert.Throws<AuditStorageException>(
             () => S3AuditReader.DeserializeAndValidate(
-                "audit/2026/09/03/duplicate.json",
+                objectKey,
+                "audit",
                 content,
                 contentIntegrity,
                 integrityProtector));
@@ -116,6 +128,7 @@ public sealed class S3AuditReaderTests
             "12345678",
             $"hmac-sha256:test-v1:{new string('a', 64)}",
             "fictional-record",
+            "test-client",
             new AuditActor("fictional-user", "employee"),
             new AuditAccess(true, true, true, false),
             new AuditOperation(
@@ -125,6 +138,32 @@ public sealed class S3AuditReaderTests
                 AuditDataCategory.PatientIdentification,
                 AuditOutcome.Succeeded),
             new AuditExchange("success", 125));
+    }
+
+    [Fact]
+    public void RejectsAuditEntryCopiedToAnotherObjectKey()
+    {
+        using var integrityProtector = CreateIntegrityProtector();
+        var entry = CreateEntry();
+        var originalKey = CreateObjectKey(entry);
+        var copiedKey = originalKey.Replace("/2026/09/03/", "/2026/09/04/", StringComparison.Ordinal);
+        var content = JsonSerializer.SerializeToUtf8Bytes(entry, AuditJson.SerializerOptions);
+        var contentIntegrity = integrityProtector.Protect(originalKey, content);
+
+        var exception = Assert.Throws<AuditStorageException>(
+            () => S3AuditReader.DeserializeAndValidate(
+                copiedKey,
+                "audit",
+                content,
+                contentIntegrity,
+                integrityProtector));
+
+        Assert.Contains("integrity", exception.Message, StringComparison.Ordinal);
+    }
+
+    private static string CreateObjectKey(AuditEntry entry)
+    {
+        return S3AuditWriter.CreateObjectKey(entry, "audit");
     }
 
     private static HmacAuditIntegrityProtector CreateIntegrityProtector()

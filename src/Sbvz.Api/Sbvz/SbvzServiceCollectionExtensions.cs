@@ -34,17 +34,17 @@ public static class SbvzServiceCollectionExtensions
             })
             .Validate(
                 options => Enum.TryParse<SbvzMode>(options.Mode, ignoreCase: true, out _),
-                $"{SbvzOptions.ModeVariable} must be Mock, Acceptance or Production.")
+                $"{SbvzOptions.ModeVariable} must be Acceptance or Production.")
             .Validate(
                 options => options.SubscriberNumber.Length == 8
                     && options.SubscriberNumber.All(char.IsAsciiDigit),
                 $"{SbvzOptions.SubscriberNumberVariable} must contain one to eight digits.")
             .Validate(
                 IsCertificateConfigurationValid,
-                $"{SbvzOptions.CertificatePathVariable} must point to a PKCS#12 file outside mock mode.")
+                $"{SbvzOptions.CertificatePathVariable} must point to a valid UZI PKCS#12 file for the configured environment.")
             .Validate(
-                HasCertificatePasswordOutsideMockMode,
-                $"{SbvzOptions.CertificatePasswordVariable} or {SbvzOptions.CertificatePasswordFileVariable} must be set outside mock mode.")
+                HasCertificatePassword,
+                $"{SbvzOptions.CertificatePasswordVariable} or {SbvzOptions.CertificatePasswordFileVariable} must be set.")
             .Validate(
                 options => options.TimeoutSeconds is >= 1 and <= 120,
                 $"{SbvzOptions.TimeoutSecondsVariable} must be between 1 and 120.")
@@ -69,45 +69,30 @@ public static class SbvzServiceCollectionExtensions
                     UseCookies = false
                 };
 
-                if (Enum.Parse<SbvzMode>(options.Mode, ignoreCase: true) is not SbvzMode.Mock)
+                var certificate = X509CertificateLoader.LoadPkcs12FromFile(
+                    options.CertificatePath,
+                    options.CertificatePassword,
+                    GetCertificateKeyStorageFlags());
+
+                if (!certificate.HasPrivateKey)
                 {
-                    var certificate = X509CertificateLoader.LoadPkcs12FromFile(
-                        options.CertificatePath,
-                        options.CertificatePassword,
-                        GetCertificateKeyStorageFlags());
-
-                    if (!certificate.HasPrivateKey)
-                    {
-                        certificate.Dispose();
-                        throw new InvalidOperationException("SBV-Z client certificate has no private key.");
-                    }
-
-                    handler.ClientCertificates.Add(certificate);
+                    certificate.Dispose();
+                    throw new InvalidOperationException("SBV-Z client certificate has no private key.");
                 }
+
+                handler.ClientCertificates.Add(certificate);
 
                 return handler;
             });
 
-        services.AddSingleton<MockSbvzClient>();
-        services.AddSingleton<SbvzXmlClient>();
-        services.AddSingleton<ISbvzClient>(provider =>
-        {
-            var options = provider.GetRequiredService<IOptions<SbvzOptions>>().Value;
-
-            return Enum.Parse<SbvzMode>(options.Mode, ignoreCase: true) switch
-            {
-                SbvzMode.Mock => provider.GetRequiredService<MockSbvzClient>(),
-                _ => provider.GetRequiredService<SbvzXmlClient>()
-            };
-        });
+        services.AddSingleton<ISbvzClient, SbvzXmlClient>();
 
         return services;
     }
 
     private static bool IsCertificateConfigurationValid(SbvzOptions options)
     {
-        if (!Enum.TryParse<SbvzMode>(options.Mode, ignoreCase: true, out var mode)
-            || mode is SbvzMode.Mock)
+        if (!Enum.TryParse<SbvzMode>(options.Mode, ignoreCase: true, out var mode))
         {
             return true;
         }
@@ -146,10 +131,9 @@ public static class SbvzServiceCollectionExtensions
         }
     }
 
-    private static bool HasCertificatePasswordOutsideMockMode(SbvzOptions options)
+    private static bool HasCertificatePassword(SbvzOptions options)
     {
-        return !Enum.TryParse<SbvzMode>(options.Mode, ignoreCase: true, out var mode)
-            || mode is SbvzMode.Mock
+        return !Enum.TryParse<SbvzMode>(options.Mode, ignoreCase: true, out _)
             || !string.IsNullOrWhiteSpace(options.CertificatePassword);
     }
 

@@ -49,6 +49,7 @@ internal static class AuditEntryValidator
         }
 
         RequireOptionalValue(entry.RecordId, 100, nameof(entry.RecordId));
+        RequireOptionalSafeIdentifier(entry.ApiClientId, 100, nameof(entry.ApiClientId));
         RequireValue(entry.Operation.Name, 100, nameof(entry.Operation.Name));
         RequireValue(entry.Operation.Purpose, 100, nameof(entry.Operation.Purpose));
         RequireValue(entry.Actor.Id, 100, nameof(entry.Actor.Id));
@@ -66,6 +67,14 @@ internal static class AuditEntryValidator
         if (entry.Exchange.DurationMilliseconds < 0)
         {
             throw new ArgumentException("Duration cannot be negative.", nameof(entry));
+        }
+
+        if (entry.Operation.DataCategory is AuditDataCategory.PatientIdentification
+            && entry.ApiClientId is null)
+        {
+            throw new ArgumentException(
+                "API client ID is required for patient identification operations.",
+                nameof(entry));
         }
     }
 
@@ -128,6 +137,21 @@ internal static class AuditEntryValidator
         if (value is not null)
         {
             RequireValue(value, maximumLength, name);
+        }
+    }
+
+    private static void RequireOptionalSafeIdentifier(
+        string? value,
+        int maximumLength,
+        string name)
+    {
+        RequireOptionalValue(value, maximumLength, name);
+
+        if (value is not null
+            && value.Any(character => !char.IsAsciiLetterOrDigit(character)
+                && character is not ('.' or '_' or '-')))
+        {
+            throw new ArgumentException($"{name} contains an invalid value.", name);
         }
     }
 }

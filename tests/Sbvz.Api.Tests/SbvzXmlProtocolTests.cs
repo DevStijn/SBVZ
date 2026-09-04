@@ -300,6 +300,124 @@ public sealed class SbvzXmlProtocolTests
     }
 
     [Theory]
+    [InlineData("Woonadres", "Woonadres")]
+    [InlineData("woonadres", "Woonadres")]
+    [InlineData("Briefadres", "Briefadres")]
+    [InlineData("briefadres", "Briefadres")]
+    public async Task AcceptsDocumentedAndObservedAddressFunctions(
+        string upstreamValue,
+        string expectedValue)
+    {
+        var xml = $$"""
+            <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+              <soap:Body>
+                <OpvragenVerifierenResponse xmlns="http://CIBG.SBV.Interface.XIS.Webservice/mrt21">
+                  <OpvragenVerifierenAntwoordBericht>
+                    <Antwoord>
+                      <Persoon><BSN>078211529</BSN></Persoon>
+                      <Adres><FunctieAdres>{{upstreamValue}}</FunctieAdres></Adres>
+                    </Antwoord>
+                    <Resultaat>G</Resultaat>
+                    <Melding Soort="G" Code="23002">BSN gevonden</Melding>
+                    <LokaalKenmerk>local-reference</LokaalKenmerk>
+                  </OpvragenVerifierenAntwoordBericht>
+                </OpvragenVerifierenResponse>
+              </soap:Body>
+            </soap:Envelope>
+            """;
+
+        var response = await ParseAsync(xml);
+
+        Assert.Equal(expectedValue, response.Answer?.Address?.AddressFunction);
+    }
+
+    [Fact]
+    public async Task RejectsUnknownAddressFunction()
+    {
+        const string xml = """
+            <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+              <soap:Body>
+                <OpvragenVerifierenResponse xmlns="http://CIBG.SBV.Interface.XIS.Webservice/mrt21">
+                  <OpvragenVerifierenAntwoordBericht>
+                    <Antwoord>
+                      <Persoon><BSN>078211529</BSN></Persoon>
+                      <Adres><FunctieAdres>Onbekend</FunctieAdres></Adres>
+                    </Antwoord>
+                    <Resultaat>G</Resultaat>
+                    <Melding Soort="G" Code="23002">BSN gevonden</Melding>
+                    <LokaalKenmerk>local-reference</LokaalKenmerk>
+                  </OpvragenVerifierenAntwoordBericht>
+                </OpvragenVerifierenResponse>
+              </soap:Body>
+            </soap:Envelope>
+            """;
+
+        await Assert.ThrowsAsync<SbvzProtocolException>(() => ParseAsync(xml));
+    }
+
+    [Theory]
+    [InlineData("by", "by")]
+    [InlineData("to", "to")]
+    [InlineData("tot", "to")]
+    public async Task AcceptsDocumentedAndObservedHouseNumberDesignations(
+        string upstreamValue,
+        string expectedValue)
+    {
+        var xml = $$"""
+            <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+              <soap:Body>
+                <OpvragenVerifierenResponse xmlns="http://CIBG.SBV.Interface.XIS.Webservice/mrt21">
+                  <OpvragenVerifierenAntwoordBericht>
+                    <Antwoord>
+                      <Persoon><BSN>078211529</BSN></Persoon>
+                      <Adres>
+                        <AanduidingBijHuisnummer Afwijkend="false">{{upstreamValue}}</AanduidingBijHuisnummer>
+                      </Adres>
+                    </Antwoord>
+                    <Resultaat>G</Resultaat>
+                    <Melding Soort="G" Code="23002">BSN gevonden</Melding>
+                    <LokaalKenmerk>local-reference</LokaalKenmerk>
+                  </OpvragenVerifierenAntwoordBericht>
+                </OpvragenVerifierenResponse>
+              </soap:Body>
+            </soap:Envelope>
+            """;
+
+        var response = await ParseAsync(xml);
+
+        Assert.Equal(expectedValue, response.Answer?.Address?.HouseNumberDesignation?.Value);
+    }
+
+    [Fact]
+    public async Task OmitsEmptyInvestigationElements()
+    {
+        const string xml = """
+            <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+              <soap:Body>
+                <OpvragenVerifierenResponse xmlns="http://CIBG.SBV.Interface.XIS.Webservice/mrt21">
+                  <OpvragenVerifierenAntwoordBericht>
+                    <Antwoord>
+                      <Persoon>
+                        <BSN>078211529</BSN>
+                        <AanduidingGegevensInOnderzoekPersoon/>
+                        <DatumIngangOnderzoekPersoon/>
+                      </Persoon>
+                    </Antwoord>
+                    <Resultaat>G</Resultaat>
+                    <Melding Soort="G" Code="23002">BSN gevonden</Melding>
+                    <LokaalKenmerk>local-reference</LokaalKenmerk>
+                  </OpvragenVerifierenAntwoordBericht>
+                </OpvragenVerifierenResponse>
+              </soap:Body>
+            </soap:Envelope>
+            """;
+
+        var response = await ParseAsync(xml);
+
+        Assert.Empty(Assert.IsType<SbvzPersonAnswer>(response.Answer?.Person).Investigations);
+    }
+
+    [Theory]
     [InlineData("OmschrijvingRedenOpschorting", "Onbekend")]
     [InlineData("IndicatieGeheim", "Onbekend")]
     public async Task RejectsUnknownRegistrationValue(string elementName, string value)

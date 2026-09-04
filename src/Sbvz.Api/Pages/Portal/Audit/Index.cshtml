@@ -134,6 +134,8 @@ else if (Model.IsEmergencyStopUnavailable)
                                         <dd>@(entry.ResponseCode ?? "—")</dd>
                                         <dt>Gebruiker</dt>
                                         <dd>@entry.ActorId (@entry.ActorRole)</dd>
+                                        <dt>API-client</dt>
+                                        <dd>@(entry.ApiClientId ?? "Niet van toepassing")</dd>
                                         <dt>Geautoriseerd</dt>
                                         <dd>@IndexModel.BooleanLabel(entry.Authorized)</dd>
                                         <dt>Behandelrelatie</dt>

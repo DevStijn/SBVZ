@@ -8,7 +8,7 @@ internal sealed class HmacAuditIntegrityProtector : IAuditIntegrityProtector, ID
 {
     private const string Algorithm = "hmac-sha256";
     private static readonly byte[] DerivationContext = Encoding.ASCII.GetBytes(
-        "SBVZ audit content integrity v1");
+        "SBVZ audit object integrity v2");
     private readonly string _keyId;
     private readonly byte[] _integrityKey;
 
@@ -27,14 +27,21 @@ internal sealed class HmacAuditIntegrityProtector : IAuditIntegrityProtector, ID
         }
     }
 
-    public string Protect(ReadOnlySpan<byte> content)
+    public string Protect(string objectKey, ReadOnlySpan<byte> content)
     {
-        var mac = HMACSHA256.HashData(_integrityKey, content);
+        var mac = ComputeMac(objectKey, content);
 
-        return $"{Algorithm}:{_keyId}:{Convert.ToHexStringLower(mac)}";
+        try
+        {
+            return $"{Algorithm}:{_keyId}:{Convert.ToHexStringLower(mac)}";
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(mac);
+        }
     }
 
-    public bool Verify(ReadOnlySpan<byte> content, string? integrityValue)
+    public bool Verify(string objectKey, ReadOnlySpan<byte> content, string? integrityValue)
     {
         var prefix = $"{Algorithm}:{_keyId}:";
 
@@ -56,7 +63,7 @@ internal sealed class HmacAuditIntegrityProtector : IAuditIntegrityProtector, ID
             return false;
         }
 
-        var actual = HMACSHA256.HashData(_integrityKey, content);
+        var actual = ComputeMac(objectKey, content);
 
         try
         {
@@ -66,6 +73,25 @@ internal sealed class HmacAuditIntegrityProtector : IAuditIntegrityProtector, ID
         {
             CryptographicOperations.ZeroMemory(actual);
             CryptographicOperations.ZeroMemory(expected);
+        }
+    }
+
+    private byte[] ComputeMac(string objectKey, ReadOnlySpan<byte> content)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(objectKey);
+        var objectKeyBytes = Encoding.UTF8.GetBytes(objectKey);
+
+        try
+        {
+            using var hmac = IncrementalHash.CreateHMAC(HashAlgorithmName.SHA256, _integrityKey);
+            hmac.AppendData(objectKeyBytes);
+            hmac.AppendData([0]);
+            hmac.AppendData(content);
+            return hmac.GetHashAndReset();
+        }
+        finally
+        {
+            CryptographicOperations.ZeroMemory(objectKeyBytes);
         }
     }
 
