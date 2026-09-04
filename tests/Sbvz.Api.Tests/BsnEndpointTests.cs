@@ -9,8 +9,10 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Sbvz.Api.Alerting;
 using Sbvz.Api.Api;
 using Sbvz.Api.Audit;
+using Sbvz.Api.Safety;
 using Sbvz.Api.Sbvz;
 using Xunit;
 
@@ -29,6 +31,7 @@ public sealed class BsnEndpointTests
         var request = new BsnLookupRequest(
             Actor: new ApiActor("fictional-user", "employee"),
             Access: new ApiAccessContext(
+                Authorized: true,
                 EmergencyAccess: false,
                 TreatmentRelationship: true,
                 Consent: true),
@@ -39,12 +42,12 @@ public sealed class BsnEndpointTests
                 Sex: BsnSex.Male),
             RecordId: "fictional-record");
 
-        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", request);
-        var body = await response.Content.ReadFromJsonAsync<BsnOperationResponse>();
-        using var responseJson = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", request, cancellationToken: TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadFromJsonAsync<BsnOperationResponse>(cancellationToken: TestContext.Current.CancellationToken);
+        using var responseJson = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
 
         response.EnsureSuccessStatusCode();
-        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        Assert.Contains("no-store", response.Headers.CacheControl?.ToString(), StringComparison.Ordinal);
         Assert.NotNull(body);
         Assert.Equal(BsnSearchPath.Surname, body.SearchPath);
         Assert.Equal(SbvzResult.Good, body.Result);
@@ -68,16 +71,17 @@ public sealed class BsnEndpointTests
         using var application = new BsnApplicationFactory();
         using var client = application.CreateClient();
 
-        var response = await client.PostAsync(
-            "/v1/bsn/lookup",
-            new StringContent("{", Encoding.UTF8, "application/json"));
-        var responseBody = await response.Content.ReadAsStringAsync();
+        var response = await client.PostAsync("/v1/bsn/lookup", new StringContent("{", Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
-        Assert.Equal("no-store", response.Headers.CacheControl?.ToString());
+        Assert.Contains("no-store", response.Headers.CacheControl?.ToString(), StringComparison.Ordinal);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         Assert.DoesNotContain(ApiKey, responseBody, StringComparison.Ordinal);
         Assert.Empty(application.AuditWriter.Entries);
+        Assert.Equal(
+            AuthenticationSurface.InternalApi,
+            Assert.Single(application.Alerts.AuthenticationFailures));
     }
 
     [Fact]
@@ -87,9 +91,7 @@ public sealed class BsnEndpointTests
         using var client = application.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
 
-        var response = await client.PostAsync(
-            "/v1/bsn/lookup",
-            new StringContent("{}", Encoding.UTF8, "text/plain"));
+        var response = await client.PostAsync("/v1/bsn/lookup", new StringContent("{}", Encoding.UTF8, "text/plain"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.UnsupportedMediaType, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -108,6 +110,7 @@ public sealed class BsnEndpointTests
             actor = new { id = "fictional-user", role = "employee" },
             access = new
             {
+                authorized = true,
                 treatmentRelationship = true,
                 consent = true,
                 emergencyAccess = false
@@ -123,12 +126,38 @@ public sealed class BsnEndpointTests
             address = (object?)null
         };
 
-        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", request);
-        var responseBody = await response.Content.ReadAsStringAsync();
+        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", request, cancellationToken: TestContext.Current.CancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
         Assert.DoesNotContain("System.Text.Json", responseBody, StringComparison.Ordinal);
+        Assert.Empty(application.AuditWriter.Entries);
+    }
+
+    [Fact]
+    public async Task LookupRejectsDuplicateJsonPropertiesBeforeAuditing()
+    {
+        using var application = new BsnApplicationFactory();
+        using var client = application.CreateClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
+        const string json = """
+            {
+              "actor": { "id": "fictional-user", "role": "employee" },
+              "access": { "authorized": true, "emergencyAccess": false },
+              "purpose": "patient-registration",
+              "purpose": "other-purpose",
+              "person": {
+                "surname": "Test-GG-Gevonden",
+                "birthDate": "19700101",
+                "sex": "M"
+              }
+            }
+            """;
+
+        var response = await client.PostAsync("/v1/bsn/lookup", new StringContent(json, Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(application.AuditWriter.Entries);
     }
 
@@ -141,7 +170,7 @@ public sealed class BsnEndpointTests
         const string json = """
             {
               "actor": { "id": "fictional-user", "role": "employee" },
-              "access": { "emergencyAccess": false },
+              "access": { "authorized": true, "emergencyAccess": false },
               "purpose": "patient-registration",
               "person": {
                 "surname": "Test-GG-Gevonden",
@@ -151,10 +180,8 @@ public sealed class BsnEndpointTests
             }
             """;
 
-        var response = await client.PostAsync(
-            "/v1/bsn/lookup",
-            new StringContent(json, Encoding.UTF8, "application/json"));
-        var body = await response.Content.ReadFromJsonAsync<BsnOperationResponse>();
+        var response = await client.PostAsync("/v1/bsn/lookup", new StringContent(json, Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadFromJsonAsync<BsnOperationResponse>(cancellationToken: TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
         Assert.Equal(BsnSearchPath.Surname, body?.SearchPath);
@@ -169,13 +196,13 @@ public sealed class BsnEndpointTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
         var request = new BsnLookupRequest(
             Actor: new ApiActor("fictional-user", "employee"),
-            Access: new ApiAccessContext(EmergencyAccess: false),
+            Access: new ApiAccessContext(Authorized: true, EmergencyAccess: false),
             Purpose: "patient-registration",
             Person: new BsnPersonInput(BirthDate: "19700101", Sex: BsnSex.Male),
             Address: new BsnAddressInput(HouseNumber: "10", PostalCode: "1234AB"));
 
-        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", request);
-        var body = await response.Content.ReadFromJsonAsync<BsnOperationResponse>();
+        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", request, cancellationToken: TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadFromJsonAsync<BsnOperationResponse>(cancellationToken: TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
         Assert.Equal(BsnSearchPath.Address, body?.SearchPath);
@@ -190,7 +217,7 @@ public sealed class BsnEndpointTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
         var request = new BsnVerifyRequest(
             Actor: new ApiActor("fictional-user", "employee"),
-            Access: new ApiAccessContext(EmergencyAccess: false),
+            Access: new ApiAccessContext(Authorized: true, EmergencyAccess: false),
             Purpose: "patient-verification",
             Bsn: "078211529",
             Person: new BsnPersonInput(
@@ -198,8 +225,8 @@ public sealed class BsnEndpointTests
                 BirthDate: "19700101",
                 Sex: BsnSex.Male));
 
-        var response = await client.PostAsJsonAsync("/v1/bsn/verify", request);
-        var body = await response.Content.ReadFromJsonAsync<BsnOperationResponse>();
+        var response = await client.PostAsJsonAsync("/v1/bsn/verify", request, cancellationToken: TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadFromJsonAsync<BsnOperationResponse>(cancellationToken: TestContext.Current.CancellationToken);
 
         response.EnsureSuccessStatusCode();
         Assert.Equal(SbvzResult.Good, body?.Result);
@@ -216,7 +243,7 @@ public sealed class BsnEndpointTests
         const string json = """
             {
               "actor": { "id": "fictional-user", "role": "employee" },
-              "access": { "emergencyAccess": false },
+              "access": { "authorized": true, "emergencyAccess": false },
               "purpose": "patient-verification",
               "bsn": null,
               "person": {
@@ -227,9 +254,7 @@ public sealed class BsnEndpointTests
             }
             """;
 
-        var response = await client.PostAsync(
-            "/v1/bsn/verify",
-            new StringContent(json, Encoding.UTF8, "application/json"));
+        var response = await client.PostAsync("/v1/bsn/verify", new StringContent(json, Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(application.AuditWriter.Entries);
@@ -244,7 +269,7 @@ public sealed class BsnEndpointTests
         const string json = """
             {
               "actor": { "id": "fictional-user", "role": "employee" },
-              "access": { "emergencyAccess": false },
+              "access": { "authorized": true, "emergencyAccess": false },
               "purpose": "patient-registration",
               "person": {
                 "surname": "Test-GG-Gevonden",
@@ -254,9 +279,7 @@ public sealed class BsnEndpointTests
             }
             """;
 
-        var response = await client.PostAsync(
-            "/v1/bsn/lookup",
-            new StringContent(json, Encoding.UTF8, "application/json"));
+        var response = await client.PostAsync("/v1/bsn/lookup", new StringContent(json, Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Empty(application.AuditWriter.Entries);
@@ -270,16 +293,16 @@ public sealed class BsnEndpointTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
         var request = new BsnLookupRequest(
             Actor: new ApiActor("fictional-user", "employee"),
-            Access: new ApiAccessContext(EmergencyAccess: false),
+            Access: new ApiAccessContext(Authorized: true, EmergencyAccess: false),
             Purpose: "patient-registration",
             Person: new BsnPersonInput(
                 Surname: "Unknown",
                 BirthDate: "19700101",
                 Sex: BsnSex.Male));
 
-        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", request);
-        var body = await response.Content.ReadFromJsonAsync<BsnOperationResponse>();
-        using var responseJson = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
+        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", request, cancellationToken: TestContext.Current.CancellationToken);
+        var body = await response.Content.ReadFromJsonAsync<BsnOperationResponse>(cancellationToken: TestContext.Current.CancellationToken);
+        using var responseJson = JsonDocument.Parse(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
 
         response.EnsureSuccessStatusCode();
         Assert.Equal(SbvzResult.Error, body?.Result);
@@ -298,15 +321,13 @@ public sealed class BsnEndpointTests
         const string json = """
             {
               "actor": { "id": "fictional-user", "role": "employee" },
-              "access": { "emergencyAccess": false },
+              "access": { "authorized": true, "emergencyAccess": false },
               "purpose": "patient-registration"
             }
             """;
 
-        var response = await client.PostAsync(
-            "/v1/bsn/lookup",
-            new StringContent(json, Encoding.UTF8, "application/json"));
-        var responseBody = await response.Content.ReadAsStringAsync();
+        var response = await client.PostAsync("/v1/bsn/lookup", new StringContent(json, Encoding.UTF8, "application/json"), TestContext.Current.CancellationToken);
+        var responseBody = await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("application/problem+json", response.Content.Headers.ContentType?.MediaType);
@@ -322,13 +343,13 @@ public sealed class BsnEndpointTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
         var request = new BsnLookupRequest(
             Actor: new ApiActor("fictional-user", "employee"),
-            Access: new ApiAccessContext(EmergencyAccess: false),
+            Access: new ApiAccessContext(Authorized: true, EmergencyAccess: false),
             Purpose: "patient-registration",
             Person: new BsnPersonInput(BirthDate: "19700101", Sex: BsnSex.Male),
             Address: new BsnAddressInput(HouseNumber: "10", PostalCode: "1234 AB"));
 
-        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", request);
-        using var problem = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", request, cancellationToken: TestContext.Current.CancellationToken);
+        using var problem = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.True(
@@ -353,8 +374,8 @@ public sealed class BsnEndpointTests
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
         var request = CreateSurnameLookupRequest();
 
-        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", request);
-        using var problem = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", request, cancellationToken: TestContext.Current.CancellationToken);
+        using var problem = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
         var operationId = problem.RootElement.GetProperty("operationId").GetGuid();
 
         Assert.Equal(expectedStatus, response.StatusCode);
@@ -363,6 +384,11 @@ public sealed class BsnEndpointTests
         Assert.All(
             application.AuditWriter.Entries,
             entry => Assert.Equal(operationId.ToString("D"), entry.OperationId));
+        var (failure, alertOperationId) = Assert.Single(application.Alerts.SbvzFailures);
+        Assert.Equal(
+            timeout ? SbvzTechnicalFailure.Timeout : SbvzTechnicalFailure.TransportOrProtocol,
+            failure);
+        Assert.Equal(operationId, alertOperationId);
     }
 
     [Fact]
@@ -372,19 +398,23 @@ public sealed class BsnEndpointTests
         using var client = application.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", ApiKey);
 
-        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", CreateSurnameLookupRequest());
-        using var problem = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync());
+        var response = await client.PostAsJsonAsync("/v1/bsn/lookup", CreateSurnameLookupRequest(), cancellationToken: TestContext.Current.CancellationToken);
+        using var problem = await JsonDocument.ParseAsync(await response.Content.ReadAsStreamAsync(TestContext.Current.CancellationToken), cancellationToken: TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
-        Assert.NotEqual(Guid.Empty, problem.RootElement.GetProperty("operationId").GetGuid());
+        var operationId = problem.RootElement.GetProperty("operationId").GetGuid();
+        Assert.NotEqual(Guid.Empty, operationId);
         Assert.Empty(application.AuditWriter.Entries);
+        var (operation, alertOperationId) = Assert.Single(application.Alerts.AuditStorageFailures);
+        Assert.Equal(AuditStorageOperation.Write, operation);
+        Assert.Equal(operationId, alertOperationId);
     }
 
     private static BsnLookupRequest CreateSurnameLookupRequest()
     {
         return new BsnLookupRequest(
             Actor: new ApiActor("fictional-user", "employee"),
-            Access: new ApiAccessContext(EmergencyAccess: false),
+            Access: new ApiAccessContext(Authorized: true, EmergencyAccess: false),
             Purpose: "patient-registration",
             Person: new BsnPersonInput(
                 Surname: "Test-GG-Gevonden",
@@ -398,6 +428,7 @@ public sealed class BsnEndpointTests
         : WebApplicationFactory<Program>
     {
         public RecordingAuditWriter AuditWriter { get; } = new() { FailWrites = failAuditWrites };
+        public RecordingSecurityAlertService Alerts { get; } = new();
 
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
@@ -412,16 +443,23 @@ public sealed class BsnEndpointTests
                         ["SBVZ_AUDIT_S3_BUCKET"] = "fictional-bucket",
                         ["SBVZ_AUDIT_S3_ENDPOINT"] = "https://storage.example",
                         ["SBVZ_AUDIT_S3_REGION"] = "fictional-region",
+                        ["SBVZ_AUDIT_S3_PREFIX"] = "audit",
                         ["SBVZ_AUDIT_S3_ACCESS_KEY_ID"] = "fictional-access-key",
                         ["SBVZ_AUDIT_S3_SECRET_ACCESS_KEY"] = "fictional-secret-key",
                         ["SBVZ_AUDIT_PATIENT_REFERENCE_KEY_ID"] = "test-v1",
-                        ["SBVZ_AUDIT_PATIENT_REFERENCE_KEY"] = ApiKey
+                        ["SBVZ_AUDIT_PATIENT_REFERENCE_KEY"] = ApiKey,
+                        ["SBVZ_ALERT_WEBHOOK_URL"] = string.Empty,
+                        ["SBVZ_ALERT_WEBHOOK_URL_FILE"] = string.Empty
                     });
             });
             builder.ConfigureTestServices(services =>
             {
                 services.RemoveAll<IAuditWriter>();
                 services.AddSingleton<IAuditWriter>(AuditWriter);
+                services.RemoveAll<ISecurityAlertService>();
+                services.AddSingleton<ISecurityAlertService>(Alerts);
+                services.RemoveAll<IEmergencyStop>();
+                services.AddSingleton<IEmergencyStop>(new RecordingEmergencyStop());
 
                 if (sbvzClient is not null)
                 {

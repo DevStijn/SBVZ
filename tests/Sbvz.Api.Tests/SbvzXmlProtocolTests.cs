@@ -148,6 +148,8 @@ public sealed class SbvzXmlProtocolTests
                         <Geslachtsaanduiding Afwijkend="false">M</Geslachtsaanduiding>
                         <AanduidingGegevensInOnderzoekPersoon>Geboortedatum is in onderzoek</AanduidingGegevensInOnderzoekPersoon>
                         <DatumIngangOnderzoekPersoon>20240101</DatumIngangOnderzoekPersoon>
+                        <AanduidingGegevensInOnderzoekPersoon>Geslachtsnaam is in onderzoek</AanduidingGegevensInOnderzoekPersoon>
+                        <DatumIngangOnderzoekPersoon>20240201</DatumIngangOnderzoekPersoon>
                       </Persoon>
                       <Adres>
                         <GemeenteVanInschrijving Afwijkend="false">Amsterdam</GemeenteVanInschrijving>
@@ -206,7 +208,10 @@ public sealed class SbvzXmlProtocolTests
         Assert.False(person.GivenNames?.Deviates);
         Assert.True(person.Surname?.Deviates);
         Assert.Equal("Jonkheer", person.NobleTitleOrPredicate);
-        Assert.Equal("20240101", person.Investigation?.StartDate);
+        Assert.Collection(
+            person.Investigations,
+            investigation => Assert.Equal("20240101", investigation.StartDate),
+            investigation => Assert.Equal("Geslachtsnaam is in onderzoek", investigation.Description));
         Assert.True(address.Street?.Deviates);
         Assert.Equal("Amsterdam", address.PlaceOfResidence);
         Assert.Equal("België", address.ForeignAddress?.Country);
@@ -214,7 +219,9 @@ public sealed class SbvzXmlProtocolTests
         Assert.Equal("Emigratie", registration.SuspensionReason);
         Assert.Equal("Geen beperking", registration.DisclosureRestriction);
         Assert.Equal("20250101", death.Date);
-        Assert.Equal("Overlijden is in onderzoek", death.Investigation?.Description);
+        Assert.Equal(
+            "Overlijden is in onderzoek",
+            Assert.Single(death.Investigations).Description);
         Assert.Collection(
             response.Messages,
             message => Assert.Equal("23002", message.Code),
@@ -269,6 +276,54 @@ public sealed class SbvzXmlProtocolTests
         Assert.Equal(SbvzResult.Error, response.Result);
         Assert.Null(response.Answer);
         Assert.Equal("23006", Assert.Single(response.Messages).Code);
+    }
+
+    [Fact]
+    public async Task RejectsFunctionalErrorWithAnswerData()
+    {
+        const string xml = """
+            <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+              <soap:Body>
+                <OpvragenVerifierenResponse xmlns="http://CIBG.SBV.Interface.XIS.Webservice/mrt21">
+                  <OpvragenVerifierenAntwoordBericht>
+                    <Antwoord><Persoon><Geslachtsnaam Afwijkend="false">Test</Geslachtsnaam></Persoon></Antwoord>
+                    <Resultaat>F</Resultaat>
+                    <Melding Soort="F" Code="23006">Vraag heeft niet tot één persoon geleid</Melding>
+                    <LokaalKenmerk>local-reference</LokaalKenmerk>
+                  </OpvragenVerifierenAntwoordBericht>
+                </OpvragenVerifierenResponse>
+              </soap:Body>
+            </soap:Envelope>
+            """;
+
+        await Assert.ThrowsAsync<SbvzProtocolException>(() => ParseAsync(xml));
+    }
+
+    [Theory]
+    [InlineData("OmschrijvingRedenOpschorting", "Onbekend")]
+    [InlineData("IndicatieGeheim", "Onbekend")]
+    public async Task RejectsUnknownRegistrationValue(string elementName, string value)
+    {
+        var registrationValue = $"<{elementName}>{value}</{elementName}>";
+        var xml = $$"""
+            <soap:Envelope xmlns:soap="http://schemas.xmlsoap.org/soap/envelope/">
+              <soap:Body>
+                <OpvragenVerifierenResponse xmlns="http://CIBG.SBV.Interface.XIS.Webservice/mrt21">
+                  <OpvragenVerifierenAntwoordBericht>
+                    <Antwoord>
+                      <Persoon><BSN>078211529</BSN></Persoon>
+                      <Inschrijving>{{registrationValue}}</Inschrijving>
+                    </Antwoord>
+                    <Resultaat>G</Resultaat>
+                    <Melding Soort="G" Code="23002">BSN gevonden</Melding>
+                    <LokaalKenmerk>local-reference</LokaalKenmerk>
+                  </OpvragenVerifierenAntwoordBericht>
+                </OpvragenVerifierenResponse>
+              </soap:Body>
+            </soap:Envelope>
+            """;
+
+        await Assert.ThrowsAsync<SbvzProtocolException>(() => ParseAsync(xml));
     }
 
     [Fact]
@@ -447,7 +502,7 @@ public sealed class SbvzXmlProtocolTests
     }
 
     [Fact]
-    public void SurnameSelectsSearchPathTwoAndAllowsInvalidOptionalAddressForSbvzWarning()
+    public void RejectsInvalidOptionalValuesEvenWhenTheyAreOutsideTheSelectedSearchPath()
     {
         var query = new SbvzPersonQuery(
             null,
@@ -461,9 +516,7 @@ public sealed class SbvzXmlProtocolTests
             "M",
             new SbvzAddressQuery(null, null, "too-long", "12", null, "invalid", "1234 AB"));
 
-        var path = SbvzQueryValidator.Validate(query);
-
-        Assert.Equal(SbvzSearchPath.Surname, path);
+        Assert.Throws<SbvzValidationException>(() => SbvzQueryValidator.Validate(query));
     }
 
     [Theory]

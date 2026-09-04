@@ -19,6 +19,7 @@ public static class AuditServiceCollectionExtensions
                 options.Bucket = configuration[S3AuditOptions.BucketVariable] ?? string.Empty;
                 options.Endpoint = configuration[S3AuditOptions.EndpointVariable] ?? string.Empty;
                 options.Region = configuration[S3AuditOptions.RegionVariable] ?? string.Empty;
+                options.Prefix = configuration[S3AuditOptions.PrefixVariable] ?? string.Empty;
                 options.AccessKeyId = SecretValueResolver.Resolve(
                     configuration[S3AuditOptions.AccessKeyIdVariable],
                     configuration[S3AuditOptions.AccessKeyIdFileVariable]);
@@ -27,19 +28,22 @@ public static class AuditServiceCollectionExtensions
                     configuration[S3AuditOptions.SecretAccessKeyFileVariable]);
             })
             .Validate(
-                options => !string.IsNullOrWhiteSpace(options.Bucket),
-                $"{S3AuditOptions.BucketVariable} must be set.")
+                options => IsSafeConfigurationValue(options.Bucket, 255),
+                $"{S3AuditOptions.BucketVariable} must contain a valid bucket name.")
             .Validate(
                 options => IsHttpsEndpoint(options.Endpoint),
                 $"{S3AuditOptions.EndpointVariable} must be a valid HTTPS URL.")
             .Validate(
-                options => !string.IsNullOrWhiteSpace(options.Region),
-                $"{S3AuditOptions.RegionVariable} must be set.")
+                options => IsSafeConfigurationValue(options.Region, 100),
+                $"{S3AuditOptions.RegionVariable} must contain a valid region.")
             .Validate(
-                options => !string.IsNullOrWhiteSpace(options.AccessKeyId),
+                options => IsValidPrefix(options.Prefix),
+                $"{S3AuditOptions.PrefixVariable} must contain valid path segments.")
+            .Validate(
+                options => IsSafeConfigurationValue(options.AccessKeyId, 1_024),
                 $"{S3AuditOptions.AccessKeyIdVariable} or {S3AuditOptions.AccessKeyIdFileVariable} must be set.")
             .Validate(
-                options => !string.IsNullOrWhiteSpace(options.SecretAccessKey),
+                options => IsSafeConfigurationValue(options.SecretAccessKey, 4_096),
                 $"{S3AuditOptions.SecretAccessKeyVariable} or {S3AuditOptions.SecretAccessKeyFileVariable} must be set.")
             .ValidateOnStart();
 
@@ -75,7 +79,9 @@ public static class AuditServiceCollectionExtensions
             return new AmazonS3Client(credentials, clientConfiguration);
         });
         services.AddSingleton<IAuditObjectStore, S3AuditObjectStore>();
+        services.AddSingleton<IAuditIntegrityProtector, HmacAuditIntegrityProtector>();
         services.AddSingleton<IAuditWriter, S3AuditWriter>();
+        services.AddSingleton<IAuditReader, S3AuditReader>();
         services.AddSingleton<IPatientReferenceGenerator, HmacPatientReferenceGenerator>();
 
         return services;
@@ -85,6 +91,8 @@ public static class AuditServiceCollectionExtensions
     {
         return Uri.TryCreate(value, UriKind.Absolute, out var uri)
             && uri.Scheme == Uri.UriSchemeHttps
+            && !string.IsNullOrWhiteSpace(uri.Host)
+            && string.IsNullOrEmpty(uri.UserInfo)
             && uri.AbsolutePath == "/"
             && string.IsNullOrEmpty(uri.Query)
             && string.IsNullOrEmpty(uri.Fragment);
@@ -97,12 +105,39 @@ public static class AuditServiceCollectionExtensions
                 || character is '.' or '_' or '-');
     }
 
+    private static bool IsValidPrefix(string value)
+    {
+        return value.Length is >= 1 and <= 128
+            && value[0] != '/'
+            && value[^1] != '/'
+            && value.Split('/').All(
+                segment => segment.Length > 0
+                    && segment is not ("." or "..")
+                    && segment.All(
+                        character => char.IsAsciiLetterOrDigit(character)
+                            || character is '-' or '_'));
+    }
+
+    private static bool IsSafeConfigurationValue(string value, int maximumLength)
+    {
+        return value.Length is >= 1
+            && value.Length <= maximumLength
+            && string.Equals(value, value.Trim(), StringComparison.Ordinal)
+            && !value.Any(char.IsControl);
+    }
+
     private static bool IsStrongBase64Key(string value)
     {
         byte[]? key = null;
 
         try
         {
+            if (value.Length is < 44 or > 4_096
+                || !string.Equals(value, value.Trim(), StringComparison.Ordinal))
+            {
+                return false;
+            }
+
             key = Convert.FromBase64String(value);
 
             return key.Length >= 32;

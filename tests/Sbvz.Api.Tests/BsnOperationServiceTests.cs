@@ -1,6 +1,9 @@
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Sbvz.Api.Alerting;
 using Sbvz.Api.Api;
 using Sbvz.Api.Audit;
+using Sbvz.Api.Safety;
 using Sbvz.Api.Sbvz;
 using Xunit;
 
@@ -62,12 +65,16 @@ public sealed class BsnOperationServiceTests
     {
         var auditWriter = new RecordingAuditWriter { FailWrites = true };
         var client = new RecordingSbvzClient();
-        var service = CreateService(client, auditWriter);
+        var alerts = new RecordingSecurityAlertService();
+        var service = CreateService(client, auditWriter, alerts);
 
         await Assert.ThrowsAsync<AuditUnavailableException>(
             () => service.LookupAsync(CreateLookupRequest(), CancellationToken.None));
 
         Assert.False(client.WasCalled);
+        Assert.Equal(
+            AuditStorageOperation.Write,
+            Assert.Single(alerts.AuditStorageFailures).Operation);
     }
 
     [Fact]
@@ -87,9 +94,94 @@ public sealed class BsnOperationServiceTests
             entry => Assert.Equal(AuditOutcome.Cancelled, entry.Operation.Outcome));
     }
 
+    [Fact]
+    public async Task AlertsWhenEmergencyAccessIsUsed()
+    {
+        var alerts = new RecordingSecurityAlertService();
+        var service = CreateService(new RecordingSbvzClient(), new RecordingAuditWriter(), alerts);
+        var request = CreateLookupRequest() with
+        {
+            Access = new ApiAccessContext(
+                Authorized: false,
+                EmergencyAccess: true,
+                TreatmentRelationship: false,
+                Consent: false)
+        };
+
+        var response = await service.LookupAsync(request, CancellationToken.None);
+
+        var (operation, operationId) = Assert.Single(alerts.EmergencyAccessUses);
+        Assert.Equal("lookup-bsn", operation);
+        Assert.Equal(response.OperationId, operationId);
+    }
+
+    [Theory]
+    [InlineData(false, null)]
+    [InlineData(null, false)]
+    public async Task RefusesExplicitlyFailedAccessControlWithoutEmergencyAccess(
+        bool? treatmentRelationship,
+        bool? consent)
+    {
+        var auditWriter = new RecordingAuditWriter();
+        var client = new RecordingSbvzClient();
+        var service = CreateService(client, auditWriter);
+        var request = CreateLookupRequest() with
+        {
+            Access = new ApiAccessContext(
+                Authorized: true,
+                EmergencyAccess: false,
+                TreatmentRelationship: treatmentRelationship,
+                Consent: consent)
+        };
+
+        await Assert.ThrowsAsync<SbvzAccessDeniedException>(
+            () => service.LookupAsync(request, CancellationToken.None));
+
+        Assert.False(client.WasCalled);
+        Assert.Collection(
+            auditWriter.Entries,
+            entry => Assert.Equal(AuditOutcome.Attempted, entry.Operation.Outcome),
+            entry =>
+            {
+                Assert.Equal(AuditOutcome.Failed, entry.Operation.Outcome);
+                Assert.Equal("access-refused", entry.Exchange.ResponseCode);
+            });
+    }
+
+    [Theory]
+    [InlineData(EmergencyStopStatus.Active, "emergency-stop-active")]
+    [InlineData(EmergencyStopStatus.Unavailable, "emergency-stop-unavailable")]
+    public async Task BlocksSbvzWhenEmergencyStopIsNotInactive(
+        EmergencyStopStatus status,
+        string expectedResponseCode)
+    {
+        var auditWriter = new RecordingAuditWriter();
+        var client = new RecordingSbvzClient();
+        var service = CreateService(
+            client,
+            auditWriter,
+            emergencyStop: new FixedEmergencyStop(status));
+
+        var exception = await Assert.ThrowsAsync<EmergencyStopException>(
+            () => service.LookupAsync(CreateLookupRequest(), CancellationToken.None));
+
+        Assert.Equal(status, exception.Status);
+        Assert.False(client.WasCalled);
+        Assert.Collection(
+            auditWriter.Entries,
+            entry => Assert.Equal(AuditOutcome.Attempted, entry.Operation.Outcome),
+            entry =>
+            {
+                Assert.Equal(AuditOutcome.Failed, entry.Operation.Outcome);
+                Assert.Equal(expectedResponseCode, entry.Exchange.ResponseCode);
+            });
+    }
+
     private static BsnOperationService CreateService(
         ISbvzClient client,
-        IAuditWriter auditWriter)
+        IAuditWriter auditWriter,
+        ISecurityAlertService? alerts = null,
+        IEmergencyStop? emergencyStop = null)
     {
         var referenceOptions = Options.Create(new AuditPatientReferenceOptions
         {
@@ -107,7 +199,10 @@ public sealed class BsnOperationServiceTests
             auditWriter,
             new HmacPatientReferenceGenerator(referenceOptions),
             sbvzOptions,
-            TimeProvider.System);
+            TimeProvider.System,
+            alerts ?? new RecordingSecurityAlertService(),
+            emergencyStop ?? new FixedEmergencyStop(EmergencyStopStatus.Inactive),
+            NullLogger<BsnOperationService>.Instance);
     }
 
     private static BsnLookupRequest CreateLookupRequest()
@@ -115,6 +210,7 @@ public sealed class BsnOperationServiceTests
         return new BsnLookupRequest(
             Actor: new ApiActor("fictional-user", "employee"),
             Access: new ApiAccessContext(
+                Authorized: true,
                 EmergencyAccess: false,
                 TreatmentRelationship: true,
                 Consent: true),
@@ -175,7 +271,7 @@ public sealed class BsnOperationServiceTests
                             null,
                             null,
                             null,
-                            null),
+                            []),
                         null,
                         null,
                         null),
@@ -191,6 +287,19 @@ public sealed class BsnOperationServiceTests
             CancellationToken cancellationToken = default)
         {
             return Task.FromCanceled<SbvzQueryResponse>(cancellationToken);
+        }
+    }
+
+    private sealed class FixedEmergencyStop(EmergencyStopStatus status) : IEmergencyStop
+    {
+        public Task<EmergencyStopStatus> GetStatusAsync(CancellationToken cancellationToken)
+        {
+            return Task.FromResult(status);
+        }
+
+        public Task ActivateAsync(AuditActor actor, CancellationToken cancellationToken)
+        {
+            return Task.CompletedTask;
         }
     }
 }

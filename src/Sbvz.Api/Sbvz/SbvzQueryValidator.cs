@@ -23,6 +23,13 @@ internal static partial class SbvzQueryValidator
         ValidateProvidedValue(query.Sex, "person.sex");
         ValidateAddressValues(query.Address);
 
+        ValidateMaximumLength(query.GivenNames, 200, "person.givenNames");
+        ValidateSingleLetter(query.Initial, "person.initial");
+        ValidateMaximumLength(query.SurnamePrefix, 10, "person.surnamePrefix");
+        ValidateMaximumLength(query.Surname, 200, "person.surname");
+        ValidateMaximumLength(query.BirthPlace, 40, "person.birthPlace");
+        ValidateMaximumLength(query.BirthCountry, 40, "person.birthCountry");
+
         if (query.Bsn is not null && !IsValidBsn(query.Bsn))
         {
             throw new SbvzValidationException("bsn", "BSN must contain nine digits and pass the eleven test.");
@@ -49,8 +56,6 @@ internal static partial class SbvzQueryValidator
 
         if (query.Surname is not null)
         {
-            ValidateMaximumLength(query.Surname, 200, "person.surname");
-
             return SbvzSearchPath.Surname;
         }
 
@@ -59,15 +64,6 @@ internal static partial class SbvzQueryValidator
             throw new SbvzValidationException(
                 "address",
                 "Without a surname, postal code and house number are both required for SBV-Z search path 1.");
-        }
-
-        ValidateMaximumLength(query.Address.HouseNumber, 5, "address.houseNumber");
-
-        if (!IsValidPostalCode(query.Address.PostalCode))
-        {
-            throw new SbvzValidationException(
-                "address.postalCode",
-                "Postal code must use format 9999XX without a space when it is part of search path 1.");
         }
 
         return SbvzSearchPath.Address;
@@ -87,6 +83,27 @@ internal static partial class SbvzQueryValidator
         ValidateProvidedValue(address.HouseNumberSuffix, "address.houseNumberSuffix");
         ValidateProvidedValue(address.HouseNumberDesignation, "address.houseNumberDesignation");
         ValidateProvidedValue(address.PostalCode, "address.postalCode");
+
+        ValidateMaximumLength(address.Municipality, 40, "address.municipality");
+        ValidateMaximumLength(address.Street, 40, "address.street");
+        ValidateMaximumLength(address.HouseNumber, 5, "address.houseNumber");
+        ValidateSingleAsciiLetter(address.HouseLetter, "address.houseLetter");
+        ValidateMaximumLength(address.HouseNumberSuffix, 12, "address.houseNumberSuffix");
+
+        if (address.HouseNumberDesignation is not null
+            && address.HouseNumberDesignation is not ("by" or "to"))
+        {
+            throw new SbvzValidationException(
+                "address.houseNumberDesignation",
+                "House number designation must be by or to.");
+        }
+
+        if (address.PostalCode is not null && !IsValidPostalCode(address.PostalCode))
+        {
+            throw new SbvzValidationException(
+                "address.postalCode",
+                "Postal code must use format 9999XX without a space.");
+        }
     }
 
     private static void ValidateProvidedValue(string? value, string field)
@@ -99,6 +116,14 @@ internal static partial class SbvzQueryValidator
         if (string.IsNullOrWhiteSpace(value))
         {
             throw new SbvzValidationException(field, "Value must not be blank when provided.");
+        }
+
+        if (!string.Equals(value, value.Trim(), StringComparison.Ordinal)
+            || value.Any(char.IsControl))
+        {
+            throw new SbvzValidationException(
+                field,
+                "Value must not contain leading, trailing or control characters.");
         }
 
         if (value.Length > MaximumTransportValueLength)
@@ -118,11 +143,27 @@ internal static partial class SbvzQueryValidator
         }
     }
 
-    private static void ValidateMaximumLength(string value, int maximumLength, string field)
+    private static void ValidateMaximumLength(string? value, int maximumLength, string field)
     {
-        if (value.Length > maximumLength)
+        if (value is not null && value.Length > maximumLength)
         {
             throw new SbvzValidationException(field, $"Value must contain at most {maximumLength} characters.");
+        }
+    }
+
+    private static void ValidateSingleLetter(string? value, string field)
+    {
+        if (value is not null && (value.Length != 1 || !char.IsLetter(value[0])))
+        {
+            throw new SbvzValidationException(field, "Value must contain one letter.");
+        }
+    }
+
+    private static void ValidateSingleAsciiLetter(string? value, string field)
+    {
+        if (value is not null && (value.Length != 1 || !char.IsAsciiLetter(value[0])))
+        {
+            throw new SbvzValidationException(field, "Value must contain one ASCII letter.");
         }
     }
 

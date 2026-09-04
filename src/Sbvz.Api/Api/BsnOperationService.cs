@@ -1,16 +1,21 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Options;
+using Sbvz.Api.Alerting;
 using Sbvz.Api.Audit;
+using Sbvz.Api.Safety;
 using Sbvz.Api.Sbvz;
 
 namespace Sbvz.Api.Api;
 
-internal sealed class BsnOperationService(
+internal sealed partial class BsnOperationService(
     ISbvzClient sbvzClient,
     IAuditWriter auditWriter,
     IPatientReferenceGenerator patientReferenceGenerator,
     IOptions<SbvzOptions> options,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    ISecurityAlertService alerts,
+    IEmergencyStop emergencyStop,
+    ILogger<BsnOperationService> logger)
 {
     public Task<BsnOperationResponse> LookupAsync(
         BsnLookupRequest request,
@@ -63,6 +68,8 @@ internal sealed class BsnOperationService(
         var searchPath = SbvzQueryValidator.Validate(query);
         var operationId = Guid.CreateVersion7();
         var localReference = operationId.ToString("D");
+        var operationStartedAtUtc = timeProvider.GetUtcNow();
+        var traceId = Activity.Current?.Id;
         var patientReference = query.Bsn is null
             ? null
             : patientReferenceGenerator.CreateFromBsn(query.Bsn);
@@ -75,16 +82,68 @@ internal sealed class BsnOperationService(
                 recordId,
                 purpose,
                 operation,
+                operationStartedAtUtc,
+                traceId,
                 patientReference,
                 AuditOutcome.Attempted,
                 responseCode: null,
                 durationMilliseconds: null),
             operationId);
 
+        if (!HasAccess(access))
+        {
+            await WriteAuditAsync(
+                CreateAuditEntry(
+                    localReference,
+                    actor,
+                    access,
+                    recordId,
+                    purpose,
+                    operation,
+                    operationStartedAtUtc,
+                    traceId,
+                    patientReference,
+                    AuditOutcome.Failed,
+                    responseCode: "access-refused",
+                    durationMilliseconds: 0),
+                operationId);
+            throw new SbvzAccessDeniedException(operationId);
+        }
+
         var stopwatch = Stopwatch.StartNew();
 
         try
         {
+            var emergencyStopStatus = await emergencyStop.GetStatusAsync(cancellationToken);
+
+            if (emergencyStopStatus is not EmergencyStopStatus.Inactive)
+            {
+                stopwatch.Stop();
+                await WriteAuditAsync(
+                    CreateAuditEntry(
+                        localReference,
+                        actor,
+                        access,
+                        recordId,
+                        purpose,
+                        operation,
+                        operationStartedAtUtc,
+                        traceId,
+                        patientReference,
+                        AuditOutcome.Failed,
+                        responseCode: emergencyStopStatus is EmergencyStopStatus.Active
+                            ? "emergency-stop-active"
+                            : "emergency-stop-unavailable",
+                        durationMilliseconds: stopwatch.ElapsedMilliseconds),
+                    operationId);
+                throw new EmergencyStopException(operationId, emergencyStopStatus);
+            }
+
+            if (access.EmergencyAccess)
+            {
+                alerts.EmergencyAccessUsed(operation, operationId);
+            }
+
             var response = await sbvzClient.QueryAsync(query, localReference, cancellationToken);
             stopwatch.Stop();
             var responseBsn = response.Answer?.Person?.Bsn;
@@ -103,6 +162,8 @@ internal sealed class BsnOperationService(
                     recordId,
                     purpose,
                     operation,
+                    operationStartedAtUtc,
+                    traceId,
                     patientReference,
                     outcome,
                     responseCode: CreateResponseCode(response),
@@ -127,6 +188,8 @@ internal sealed class BsnOperationService(
                     recordId,
                     purpose,
                     operation,
+                    operationStartedAtUtc,
+                    traceId,
                     patientReference,
                     AuditOutcome.Cancelled,
                     responseCode: "cancelled",
@@ -145,11 +208,15 @@ internal sealed class BsnOperationService(
                     recordId,
                     purpose,
                     operation,
+                    operationStartedAtUtc,
+                    traceId,
                     patientReference,
                     AuditOutcome.Failed,
                     responseCode: "timeout",
                     durationMilliseconds: stopwatch.ElapsedMilliseconds),
                 operationId);
+            LogSbvzTimeout(logger, exception, operationId);
+            alerts.SbvzRequestFailed(SbvzTechnicalFailure.Timeout, operationId);
             throw new SbvzOperationException(
                 operationId,
                 SbvzOperationFailure.Timeout,
@@ -167,11 +234,15 @@ internal sealed class BsnOperationService(
                     recordId,
                     purpose,
                     operation,
+                    operationStartedAtUtc,
+                    traceId,
                     patientReference,
                     AuditOutcome.Failed,
                     responseCode: "transport-or-protocol-error",
                     durationMilliseconds: stopwatch.ElapsedMilliseconds),
                 operationId);
+            LogSbvzFailure(logger, exception, operationId);
+            alerts.SbvzRequestFailed(SbvzTechnicalFailure.TransportOrProtocol, operationId);
             throw new SbvzOperationException(
                 operationId,
                 SbvzOperationFailure.Upstream,
@@ -187,6 +258,8 @@ internal sealed class BsnOperationService(
         string? recordId,
         string purpose,
         string operation,
+        DateTimeOffset operationStartedAtUtc,
+        string? traceId,
         string? patientReference,
         AuditOutcome outcome,
         string? responseCode,
@@ -196,18 +269,24 @@ internal sealed class BsnOperationService(
             AuditEntry.CurrentSchemaVersion,
             Guid.NewGuid(),
             timeProvider.GetUtcNow(),
+            operationStartedAtUtc,
             operationId,
+            traceId,
+            Invalidated: false,
             options.Value.SubscriberNumber,
             patientReference,
             recordId,
             new AuditActor(actor.Id, actor.Role),
             new AuditAccess(
+                access.Authorized,
                 access.TreatmentRelationship,
                 access.Consent,
                 access.EmergencyAccess),
             new AuditOperation(
                 operation,
                 purpose,
+                AuditActionType.Query,
+                AuditDataCategory.PatientIdentification,
                 outcome),
             new AuditExchange(
                 responseCode,
@@ -222,9 +301,35 @@ internal sealed class BsnOperationService(
         }
         catch (Exception exception)
         {
+            LogAuditWriteFailed(logger, exception, operationId);
+            alerts.AuditStorageUnavailable(AuditStorageOperation.Write, operationId);
             throw new AuditUnavailableException(operationId, "Audit storage is unavailable.", exception);
         }
     }
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "SBV-Z request timed out for operation {OperationId}.")]
+    private static partial void LogSbvzTimeout(
+        ILogger logger,
+        Exception exception,
+        Guid operationId);
+
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "SBV-Z request failed for operation {OperationId}.")]
+    private static partial void LogSbvzFailure(
+        ILogger logger,
+        Exception exception,
+        Guid operationId);
+
+    [LoggerMessage(
+        Level = LogLevel.Error,
+        Message = "Audit write failed for operation {OperationId}.")]
+    private static partial void LogAuditWriteFailed(
+        ILogger logger,
+        Exception exception,
+        Guid operationId);
 
     private static SbvzPersonQuery CreateQuery(
         BsnPersonInput person,
@@ -282,6 +387,14 @@ internal sealed class BsnOperationService(
         }
     }
 
+    private static bool HasAccess(ApiAccessContext access)
+    {
+        return access.EmergencyAccess
+            || (access.Authorized
+                && access.TreatmentRelationship is not false
+                && access.Consent is not false);
+    }
+
     private static void RequireObject(object? value, string field)
     {
         if (value is null)
@@ -292,11 +405,14 @@ internal sealed class BsnOperationService(
 
     private static void RequireValue(string value, int maximumLength, string field)
     {
-        if (string.IsNullOrWhiteSpace(value) || value.Length > maximumLength)
+        if (string.IsNullOrWhiteSpace(value)
+            || value.Length > maximumLength
+            || !string.Equals(value, value.Trim(), StringComparison.Ordinal)
+            || value.Any(char.IsControl))
         {
             throw new SbvzValidationException(
                 field,
-                $"Value must be non-blank and at most {maximumLength} characters.");
+                $"Value must be non-blank, at most {maximumLength} characters, and contain no surrounding or control characters.");
         }
     }
 
@@ -347,6 +463,11 @@ internal sealed class SbvzOperationException(
 {
     public Guid OperationId { get; } = operationId;
     public SbvzOperationFailure Failure { get; } = failure;
+}
+
+internal sealed class SbvzAccessDeniedException(Guid operationId) : Exception("Access was refused.")
+{
+    public Guid OperationId { get; } = operationId;
 }
 
 internal enum SbvzOperationFailure

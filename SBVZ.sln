@@ -6,6 +6,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sbvz.Api", "src\Sbvz.Api\Sb
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sbvz.Api.Tests", "tests\Sbvz.Api.Tests\Sbvz.Api.Tests.csproj", "{8C1B8FB5-9F8E-4D11-9C08-65C13F8192DB}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Sbvz.Credentials", "tools\Sbvz.Credentials\Sbvz.Credentials.csproj", "{745741C1-40C8-45B1-A798-F4823F1CD6E9}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,5 +22,9 @@ Global
 		{8C1B8FB5-9F8E-4D11-9C08-65C13F8192DB}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{8C1B8FB5-9F8E-4D11-9C08-65C13F8192DB}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{8C1B8FB5-9F8E-4D11-9C08-65C13F8192DB}.Release|Any CPU.Build.0 = Release|Any CPU
+		{745741C1-40C8-45B1-A798-F4823F1CD6E9}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{745741C1-40C8-45B1-A798-F4823F1CD6E9}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{745741C1-40C8-45B1-A798-F4823F1CD6E9}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{745741C1-40C8-45B1-A798-F4823F1CD6E9}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

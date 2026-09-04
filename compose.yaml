@@ -4,10 +4,21 @@ services:
   api:
     build:
       context: .
+    init: true
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 256
+    stop_grace_period: 30s
     ports:
       - "127.0.0.1:8080:8080"
     environment:
       ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      SBVZ_ALLOWED_HOSTS: ${SBVZ_ALLOWED_HOSTS:-localhost;127.0.0.1}
+      SBVZ_TRUSTED_PROXIES: ${SBVZ_TRUSTED_PROXIES:-}
       SBVZ_MODE: ${SBVZ_MODE}
       SBVZ_SUBSCRIBER_NUMBER: ${SBVZ_SUBSCRIBER_NUMBER}
       SBVZ_TIMEOUT_SECONDS: ${SBVZ_TIMEOUT_SECONDS}
@@ -19,6 +30,8 @@ services:
       SBVZ_AUDIT_S3_BUCKET: ${SBVZ_AUDIT_S3_BUCKET}
       SBVZ_AUDIT_S3_ENDPOINT: ${SBVZ_AUDIT_S3_ENDPOINT}
       SBVZ_AUDIT_S3_REGION: ${SBVZ_AUDIT_S3_REGION}
+      SBVZ_AUDIT_S3_PREFIX: ${SBVZ_AUDIT_S3_PREFIX}
+      SBVZ_EMERGENCY_STOP_OBJECT_KEY: ${SBVZ_EMERGENCY_STOP_OBJECT_KEY:-_control/sbvz-disabled}
       SBVZ_AUDIT_S3_ACCESS_KEY_ID: ${SBVZ_AUDIT_S3_ACCESS_KEY_ID:-}
       SBVZ_AUDIT_S3_ACCESS_KEY_ID_FILE: /run/secrets/sbvz/audit-s3-access-key-id
       SBVZ_AUDIT_S3_SECRET_ACCESS_KEY: ${SBVZ_AUDIT_S3_SECRET_ACCESS_KEY:-}
@@ -26,8 +39,30 @@ services:
       SBVZ_AUDIT_PATIENT_REFERENCE_KEY_ID: ${SBVZ_AUDIT_PATIENT_REFERENCE_KEY_ID}
       SBVZ_AUDIT_PATIENT_REFERENCE_KEY: ${SBVZ_AUDIT_PATIENT_REFERENCE_KEY:-}
       SBVZ_AUDIT_PATIENT_REFERENCE_KEY_FILE: /run/secrets/sbvz/audit-patient-reference-key
+      SBVZ_AUDIT_PORTAL_ENABLED: ${SBVZ_AUDIT_PORTAL_ENABLED:-false}
+      SBVZ_AUDIT_PORTAL_USERNAME: ${SBVZ_AUDIT_PORTAL_USERNAME:-}
+      SBVZ_AUDIT_PORTAL_PASSWORD_HASH: ${SBVZ_AUDIT_PORTAL_PASSWORD_HASH:-}
+      SBVZ_AUDIT_PORTAL_PASSWORD_HASH_FILE: /run/secrets/sbvz/audit-portal-password-hash
+      SBVZ_AUDIT_PORTAL_TOTP_SECRET: ${SBVZ_AUDIT_PORTAL_TOTP_SECRET:-}
+      SBVZ_AUDIT_PORTAL_TOTP_SECRET_FILE: /run/secrets/sbvz/audit-portal-totp-secret
+      SBVZ_AUDIT_PORTAL_KEYS_PATH: /var/lib/sbvz/data-protection
+      SBVZ_ALERT_WEBHOOK_URL: ${SBVZ_ALERT_WEBHOOK_URL:-}
+      SBVZ_ALERT_WEBHOOK_URL_FILE: /run/secrets/sbvz/alert-webhook-url
     volumes:
       - type: bind
         source: ${SBVZ_SECRET_DIRECTORY}
         target: /run/secrets/sbvz
         read_only: true
+      - type: volume
+        source: audit-portal-keys
+        target: /var/lib/sbvz/data-protection
+    tmpfs:
+      - /tmp:size=16m,mode=1777,noexec,nosuid,nodev
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+volumes:
+  audit-portal-keys:

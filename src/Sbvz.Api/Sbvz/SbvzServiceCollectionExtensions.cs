@@ -23,9 +23,13 @@ public static class SbvzServiceCollectionExtensions
                     configuration[SbvzOptions.CertificatePasswordVariable],
                     configuration[SbvzOptions.CertificatePasswordFileVariable]);
 
-                if (int.TryParse(configuration[SbvzOptions.TimeoutSecondsVariable], out var timeoutSeconds))
+                var configuredTimeout = configuration[SbvzOptions.TimeoutSecondsVariable];
+
+                if (!string.IsNullOrWhiteSpace(configuredTimeout))
                 {
-                    options.TimeoutSeconds = timeoutSeconds;
+                    options.TimeoutSeconds = int.TryParse(configuredTimeout, out var timeoutSeconds)
+                        ? timeoutSeconds
+                        : 0;
                 }
             })
             .Validate(
@@ -126,7 +130,11 @@ public static class SbvzServiceCollectionExtensions
 
             return certificate.HasPrivateKey
                 && certificate.NotBefore.ToUniversalTime() <= now
-                && certificate.NotAfter.ToUniversalTime() > now;
+                && certificate.NotAfter.ToUniversalTime() > now
+                && UziServerCertificateValidator.IsValid(
+                    certificate,
+                    mode,
+                    options.SubscriberNumber);
         }
         catch (CryptographicException)
         {

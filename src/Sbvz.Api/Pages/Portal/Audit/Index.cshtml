@@ -1,0 +1,192 @@
+@page "/portal/audit"
+@model IndexModel
+@{
+    ViewData["Title"] = "Auditlog";
+}
+
+<header class="topbar">
+    <h1>Auditlog</h1>
+    <div class="account">
+        <span>@User.Identity?.Name</span>
+        <form method="post" asp-page-handler="Logout">
+            <button type="submit" class="button-secondary">Uitloggen</button>
+        </form>
+    </div>
+</header>
+
+@if (Model.IsEmergencyStopActive)
+{
+    <div class="alert" role="alert">
+        De noodstop is actief. Alle BSN-opvragingen en -verificaties zijn geblokkeerd.
+    </div>
+}
+else if (Model.IsEmergencyStopUnavailable)
+{
+    <div class="alert" role="alert">
+        De noodstopstatus kan niet worden gecontroleerd. BSN-operaties zijn uit voorzorg geblokkeerd.
+    </div>
+}
+
+<p class="portal-actions">
+    <a class="button-link button-secondary" asp-page="/Portal/Audit/EmergencyStop">
+        Noodstop beheren
+    </a>
+</p>
+
+<section class="content-panel">
+    <form method="get" class="filters">
+        <div>
+            <label for="Date">Datum (UTC)</label>
+            <input id="Date"
+                   name="Date"
+                   type="date"
+                   value="@Model.Date.ToString("yyyy-MM-dd")" />
+        </div>
+        <button type="submit">Tonen</button>
+    </form>
+
+    @if (Model.IsUnavailable)
+    {
+        <div class="alert" role="alert">
+            De auditopslag is tijdelijk niet beschikbaar. Probeer het later opnieuw.
+        </div>
+    }
+    else if (!ModelState.IsValid)
+    {
+        <div class="alert" role="alert">
+            Kies een geldige datum en pagina.
+        </div>
+    }
+    else if (Model.AuditPage is { TotalCount: 0 })
+    {
+        <div class="empty-state">Geen auditregistraties gevonden voor deze datum.</div>
+    }
+    else if (Model.AuditPage is { } auditPage)
+    {
+        <div class="table-heading">
+            <p><strong>@auditPage.TotalCount</strong> handelingen</p>
+            <p>Pagina @auditPage.Page van @auditPage.TotalPages</p>
+        </div>
+        <div class="table-scroll">
+            <table>
+                <thead>
+                    <tr>
+                        <th>Starttijd (UTC)</th>
+                        <th>Gebruiker</th>
+                        <th>Handeling</th>
+                        <th>Uitkomst</th>
+                        <th>Referentie</th>
+                        <th>Duur</th>
+                        <th>Onderzoek</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var entry in auditPage.Entries)
+                    {
+                        <tr>
+                            <td class="nowrap">@entry.StartedAtUtc.ToString("HH:mm:ss.fff")</td>
+                            <td>
+                                <strong>@entry.ActorId</strong>
+                                <span class="subtle">@entry.ActorRole</span>
+                            </td>
+                            <td>
+                                @IndexModel.OperationLabel(entry.OperationName)
+                                <span class="subtle">@IndexModel.PurposeLabel(entry.Purpose)</span>
+                            </td>
+                            <td>
+                                <span class="badge badge-@entry.Outcome.ToString().ToLowerInvariant()">
+                                    @IndexModel.OutcomeLabel(entry.Outcome)
+                                </span>
+                            </td>
+                            <td>
+                                @if (entry.RecordId is not null)
+                                {
+                                    <span>@entry.RecordId</span>
+                                }
+                                @if (entry.PatientReference is not null)
+                                {
+                                    <span class="subtle mono">@IndexModel.AbbreviatePatientReference(entry.PatientReference)</span>
+                                }
+                                <span class="subtle mono" title="@entry.OperationId">
+                                    @IndexModel.AbbreviateOperationId(entry.OperationId)
+                                </span>
+                            </td>
+                            <td class="nowrap">@IndexModel.DurationLabel(entry.DurationMilliseconds)</td>
+                            <td>
+                                <details>
+                                    <summary>Details</summary>
+                                    <dl class="audit-details">
+                                        <dt>Gestart</dt>
+                                        <dd>@IndexModel.TimestampLabel(entry.StartedAtUtc)</dd>
+                                        <dt>Afgerond</dt>
+                                        <dd>@IndexModel.OptionalTimestampLabel(entry.CompletedAtUtc)</dd>
+                                        <dt>Handeling</dt>
+                                        <dd>@IndexModel.OperationLabel(entry.OperationName) (@entry.OperationName)</dd>
+                                        <dt>Doel</dt>
+                                        <dd>@IndexModel.PurposeLabel(entry.Purpose) (@entry.Purpose)</dd>
+                                        <dt>Actietype</dt>
+                                        <dd>@IndexModel.ActionTypeLabel(entry.ActionType)</dd>
+                                        <dt>Gegevenscategorie</dt>
+                                        <dd>@IndexModel.DataCategoryLabel(entry.DataCategory)</dd>
+                                        <dt>Uitkomst</dt>
+                                        <dd>@IndexModel.OutcomeLabel(entry.Outcome)</dd>
+                                        <dt>Respons</dt>
+                                        <dd>@(entry.ResponseCode ?? "—")</dd>
+                                        <dt>Gebruiker</dt>
+                                        <dd>@entry.ActorId (@entry.ActorRole)</dd>
+                                        <dt>Geautoriseerd</dt>
+                                        <dd>@IndexModel.BooleanLabel(entry.Authorized)</dd>
+                                        <dt>Behandelrelatie</dt>
+                                        <dd>@IndexModel.BooleanLabel(entry.TreatmentRelationship)</dd>
+                                        <dt>Toestemming</dt>
+                                        <dd>@IndexModel.BooleanLabel(entry.Consent)</dd>
+                                        <dt>Noodtoegang</dt>
+                                        <dd>@IndexModel.BooleanLabel(entry.EmergencyAccess)</dd>
+                                        <dt>Dossierreferentie</dt>
+                                        <dd class="mono break-all">@(entry.RecordId ?? "—")</dd>
+                                        <dt>Patiëntreferentie</dt>
+                                        <dd class="mono break-all">@(entry.PatientReference ?? "—")</dd>
+                                        <dt>Abonneenummer</dt>
+                                        <dd class="mono">@entry.SubscriberNumber</dd>
+                                        <dt>Operation ID</dt>
+                                        <dd class="mono break-all">@entry.OperationId</dd>
+                                        <dt>Trace ID</dt>
+                                        <dd class="mono break-all">@(entry.TraceId ?? "—")</dd>
+                                        <dt>Event IDs</dt>
+                                        <dd class="mono break-all">
+                                            @entry.AttemptEventId
+                                            @if (entry.CompletionEventId is not null)
+                                            {
+                                                <br />
+                                                @entry.CompletionEventId
+                                            }
+                                        </dd>
+                                        <dt>Integriteit</dt>
+                                        <dd>@(entry.Invalidated ? "Ongeldig verklaard" : "Geverifieerd")</dd>
+                                    </dl>
+                                </details>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        @if (auditPage.TotalPages > 1)
+        {
+            <nav class="pagination" aria-label="Paginering">
+                @if (auditPage.Page > 1)
+                {
+                    <a asp-route-date="@Model.Date.ToString("yyyy-MM-dd")"
+                       asp-route-pageNumber="@(auditPage.Page - 1)">Vorige</a>
+                }
+                <span>Pagina @auditPage.Page van @auditPage.TotalPages</span>
+                @if (auditPage.Page < auditPage.TotalPages)
+                {
+                    <a asp-route-date="@Model.Date.ToString("yyyy-MM-dd")"
+                       asp-route-pageNumber="@(auditPage.Page + 1)">Volgende</a>
+                }
+            </nav>
+        }
+    }
+</section>

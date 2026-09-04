@@ -55,4 +55,24 @@ public sealed class SecretValueResolverTests
 
         Assert.Empty(result);
     }
+
+    [Fact]
+    public void RejectsOversizedSecretFile()
+    {
+        var directory = Directory.CreateTempSubdirectory("sbvz-secret-");
+
+        try
+        {
+            var filePath = Path.Combine(directory.FullName, "secret");
+            File.WriteAllText(filePath, new string('A', 64 * 1024 + 1));
+
+            var result = SecretValueResolver.Resolve(null, filePath);
+
+            Assert.Empty(result);
+        }
+        finally
+        {
+            directory.Delete(recursive: true);
+        }
+    }
 }

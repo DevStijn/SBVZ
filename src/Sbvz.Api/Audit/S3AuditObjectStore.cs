@@ -10,7 +10,7 @@ internal interface IAuditObjectStore
     Task WriteOnceAsync(
         string objectKey,
         ReadOnlyMemory<byte> content,
-        string contentSha256,
+        string contentIntegrity,
         CancellationToken cancellationToken);
 }
 
@@ -18,10 +18,12 @@ internal sealed class S3AuditObjectStore(
     IAmazonS3 client,
     IOptions<S3AuditOptions> options) : IAuditObjectStore
 {
+    private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(10);
+
     public async Task WriteOnceAsync(
         string objectKey,
         ReadOnlyMemory<byte> content,
-        string contentSha256,
+        string contentIntegrity,
         CancellationToken cancellationToken)
     {
         using var stream = new MemoryStream(content.ToArray(), writable: false);
@@ -31,12 +33,16 @@ internal sealed class S3AuditObjectStore(
             Key = objectKey,
             InputStream = stream,
             ContentType = "application/json",
-            IfNoneMatch = "*"
+            IfNoneMatch = "*",
+            DisablePayloadSigning = true,
+            DisableDefaultChecksumValidation = true
         };
-        request.Metadata["content-sha256"] = contentSha256;
+        request.Metadata["content-integrity"] = contentIntegrity;
         request.Metadata["schema-version"] = AuditEntry.CurrentSchemaVersion.ToString(
             CultureInfo.InvariantCulture);
 
-        await client.PutObjectAsync(request, cancellationToken);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(OperationTimeout);
+        await client.PutObjectAsync(request, timeout.Token);
     }
 }

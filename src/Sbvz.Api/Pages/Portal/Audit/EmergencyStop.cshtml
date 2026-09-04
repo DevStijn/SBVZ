@@ -1,0 +1,45 @@
+@page "/portal/audit/emergency-stop"
+@model EmergencyStopModel
+@{
+    ViewData["Title"] = "Noodstop";
+}
+
+<p><a asp-page="/Portal/Audit/Index">Terug naar de auditlog</a></p>
+<h1>Noodstop</h1>
+
+@if (Model.ActivationSucceeded)
+{
+    <div class="notice" role="status">
+        De noodstop is geactiveerd. Alle BSN-opvragingen en -verificaties zijn geblokkeerd.
+    </div>
+}
+
+@if (Model.Status is EmergencyStopStatus.Unavailable)
+{
+    <div class="alert" role="alert">
+        De noodstopstatus is niet beschikbaar. BSN-operaties zijn uit voorzorg geblokkeerd.
+    </div>
+}
+else if (Model.Status is EmergencyStopStatus.Active)
+{
+    <div class="alert" role="alert">
+        De noodstop is actief.
+    </div>
+    <p>
+        Uitschakelen kan niet via dit portaal. Dit kan uitsluitend door een technisch
+        beheerder worden uitgevoerd.
+    </p>
+}
+else
+{
+    <section class="control-panel" aria-labelledby="activate-title">
+        <h2 id="activate-title">Noodstop activeren</h2>
+        <p>
+            Hiermee worden alle nieuwe BSN-opvragingen en -verificaties onmiddellijk geblokkeerd.
+            Uitschakelen kan daarna uitsluitend door een technisch beheerder worden uitgevoerd.
+        </p>
+        <form method="post" asp-page-handler="Activate">
+            <button type="submit" class="button-danger">Noodstop activeren</button>
+        </form>
+    </section>
+}

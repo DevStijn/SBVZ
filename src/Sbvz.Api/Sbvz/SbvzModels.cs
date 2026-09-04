@@ -47,7 +47,7 @@ public sealed record SbvzPersonAnswer(
     SbvzComparedValue? BirthPlace,
     SbvzComparedValue? BirthCountry,
     SbvzComparedValue? Sex,
-    SbvzInvestigation? Investigation);
+    IReadOnlyList<SbvzInvestigation> Investigations);
 
 public sealed record SbvzAddressAnswer(
     SbvzComparedValue? Municipality,
@@ -62,7 +62,7 @@ public sealed record SbvzAddressAnswer(
     string? PlaceOfResidence,
     string? LocationDescription,
     string? CountryFromWhichRegistered,
-    SbvzInvestigation? Investigation,
+    IReadOnlyList<SbvzInvestigation> Investigations,
     SbvzForeignAddress? ForeignAddress);
 
 public sealed record SbvzForeignAddress(
@@ -78,7 +78,7 @@ public sealed record SbvzRegistrationAnswer(
 
 public sealed record SbvzDeathAnswer(
     string? Date,
-    SbvzInvestigation? Investigation);
+    IReadOnlyList<SbvzInvestigation> Investigations);
 
 public sealed record SbvzInvestigation(
     string? Description,

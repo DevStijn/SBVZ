@@ -1,12 +1,15 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Options;
+using Sbvz.Api.Alerting;
 
 namespace Sbvz.Api.Api;
 
-internal sealed class ApiKeyAuthenticationMiddleware(
+internal sealed partial class ApiKeyAuthenticationMiddleware(
     RequestDelegate next,
-    IOptions<ApiAccessOptions> options)
+    IOptions<ApiAccessOptions> options,
+    ISecurityAlertService alerts,
+    ILogger<ApiKeyAuthenticationMiddleware> logger)
 {
     public async Task InvokeAsync(HttpContext context)
     {
@@ -16,15 +19,14 @@ internal sealed class ApiKeyAuthenticationMiddleware(
             return;
         }
 
-        context.Response.Headers.CacheControl = "no-store";
-        context.Response.Headers.Pragma = "no-cache";
-
         var authorization = context.Request.Headers.Authorization.ToString();
         const string prefix = "Bearer ";
 
         if (!authorization.StartsWith(prefix, StringComparison.Ordinal)
             || !Matches(authorization[prefix.Length..], options.Value.ApiKey))
         {
+            LogAuthenticationFailed(logger);
+            alerts.AuthenticationFailed(AuthenticationSurface.InternalApi);
             context.Response.Headers.WWWAuthenticate = "Bearer";
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
             return;
@@ -40,4 +42,9 @@ internal sealed class ApiKeyAuthenticationMiddleware(
 
         return CryptographicOperations.FixedTimeEquals(providedHash, expectedHash);
     }
+
+    [LoggerMessage(
+        Level = LogLevel.Warning,
+        Message = "Internal API authentication failed.")]
+    private static partial void LogAuthenticationFailed(ILogger logger);
 }

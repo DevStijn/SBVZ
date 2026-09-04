@@ -1,0 +1,52 @@
+@page "/portal/audit/login"
+@model LoginModel
+@{
+    ViewData["Title"] = "Inloggen";
+}
+
+<section class="login-panel" aria-labelledby="login-title">
+    <h1 id="login-title">Inloggen</h1>
+    <p>Log in om de SBV-Z-service te beheren.</p>
+
+    @if (Model.IsUnavailable)
+    {
+        <div class="alert" role="alert">
+            Inloggen is tijdelijk niet beschikbaar. Probeer het later opnieuw.
+        </div>
+    }
+    else if (Model.HasError)
+    {
+        <div class="alert" role="alert">
+            Gebruikersnaam, wachtwoord of verificatiecode is onjuist.
+        </div>
+    }
+
+    <form method="post" class="login-form">
+        <div>
+            <label for="Username">Gebruikersnaam</label>
+            <input id="Username"
+                   name="Username"
+                   value="@Model.Username"
+                   autocomplete="username"
+                   autofocus />
+        </div>
+        <div>
+            <label for="Password">Wachtwoord</label>
+            <input id="Password"
+                   name="Password"
+                   type="password"
+                   autocomplete="current-password" />
+        </div>
+        <div>
+            <label for="TotpCode">Verificatiecode</label>
+            <input id="TotpCode"
+                   name="TotpCode"
+                   class="totp-input"
+                   inputmode="numeric"
+                   autocomplete="one-time-code"
+                   maxlength="6"
+                   pattern="[0-9]{6}" />
+        </div>
+        <button type="submit">Inloggen</button>
+    </form>
+</section>

@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.RateLimiting;
+using Sbvz.Api.Safety;
 using Sbvz.Api.Sbvz;
 
 namespace Sbvz.Api.Api;
@@ -8,6 +10,7 @@ public static class BsnEndpoints
     {
         var group = endpoints
             .MapGroup("/v1/bsn")
+            .RequireRateLimiting(ApiAccessOptions.RateLimitPolicy)
             .WithTags("BSN");
 
         group
@@ -22,6 +25,8 @@ public static class BsnEndpoints
             .Produces<BsnOperationResponse>()
             .ProducesValidationProblem()
             .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status502BadGateway)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .ProducesProblem(StatusCodes.Status504GatewayTimeout);
@@ -36,6 +41,8 @@ public static class BsnEndpoints
             .Produces<BsnOperationResponse>()
             .ProducesValidationProblem()
             .Produces(StatusCodes.Status401Unauthorized)
+            .Produces(StatusCodes.Status429TooManyRequests)
+            .ProducesProblem(StatusCodes.Status403Forbidden)
             .ProducesProblem(StatusCodes.Status502BadGateway)
             .ProducesProblem(StatusCodes.Status503ServiceUnavailable)
             .ProducesProblem(StatusCodes.Status504GatewayTimeout);
@@ -88,6 +95,20 @@ public static class BsnEndpoints
                 title: "Audit storage unavailable",
                 extensions: OperationExtensions(exception.OperationId));
         }
+        catch (SbvzAccessDeniedException exception)
+        {
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status403Forbidden,
+                title: "Access refused",
+                extensions: OperationExtensions(exception.OperationId));
+        }
+        catch (EmergencyStopException exception)
+        {
+            return TypedResults.Problem(
+                statusCode: StatusCodes.Status503ServiceUnavailable,
+                title: "BSN operations are temporarily disabled",
+                extensions: OperationExtensions(exception.OperationId));
+        }
         catch (SbvzOperationException exception) when (exception.Failure is SbvzOperationFailure.Timeout)
         {
             return TypedResults.Problem(
@@ -111,4 +132,12 @@ public static class BsnEndpoints
             ["operationId"] = operationId
         };
     }
+}
+
+internal sealed class EmergencyStopException(
+    Guid operationId,
+    EmergencyStopStatus status) : Exception("BSN operations are temporarily disabled.")
+{
+    public Guid OperationId { get; } = operationId;
+    public EmergencyStopStatus Status { get; } = status;
 }

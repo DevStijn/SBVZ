@@ -26,6 +26,7 @@ public sealed record ApiActor(
     [property: JsonRequired] string Role);
 
 public sealed record ApiAccessContext(
+    [property: JsonRequired] bool Authorized,
     [property: JsonRequired] bool EmergencyAccess,
     bool? TreatmentRelationship = null,
     bool? Consent = null);

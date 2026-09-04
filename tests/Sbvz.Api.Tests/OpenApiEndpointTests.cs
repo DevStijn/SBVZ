@@ -15,8 +15,8 @@ public sealed class OpenApiEndpointTests
         using var application = new OpenApiApplicationFactory("Development");
         using var client = application.CreateClient();
 
-        var documentResponse = await client.GetAsync("/openapi/v1.json");
-        var documentJson = await documentResponse.Content.ReadAsStringAsync();
+        var documentResponse = await client.GetAsync("/openapi/v1.json", TestContext.Current.CancellationToken);
+        var documentJson = await documentResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         documentResponse.EnsureSuccessStatusCode();
         Assert.DoesNotContain(OpenApiApplicationFactory.ApiKey, documentJson, StringComparison.Ordinal);
@@ -83,7 +83,7 @@ public sealed class OpenApiEndpointTests
                 .EnumerateArray()
                 .Select(value => value.GetString()));
         Assert.Equal(
-            new string?[] { "M", "V", null },
+            ["M", "V", null],
             schemas
                 .GetProperty("BsnSex")
                 .GetProperty("enum")
@@ -106,7 +106,7 @@ public sealed class OpenApiEndpointTests
                 "bsn",
                 "givenNames",
                 "initial",
-                "investigation",
+                "investigations",
                 "nobleTitleOrPredicate",
                 "sex",
                 "surname",
@@ -123,7 +123,7 @@ public sealed class OpenApiEndpointTests
                 "houseNumber",
                 "houseNumberDesignation",
                 "houseNumberSuffix",
-                "investigation",
+                "investigations",
                 "locationDescription",
                 "municipality",
                 "municipalityPart",
@@ -135,14 +135,14 @@ public sealed class OpenApiEndpointTests
             schemas,
             "SbvzRegistrationAnswer",
             ["disclosureRestriction", "suspensionReason"]);
-        AssertSchemaProperties(schemas, "SbvzDeathAnswer", ["date", "investigation"]);
+        AssertSchemaProperties(schemas, "SbvzDeathAnswer", ["date", "investigations"]);
         AssertSchemaProperties(
             schemas,
             "SbvzForeignAddress",
             ["country", "line1", "line2", "line3", "startDate"]);
 
-        var scalarResponse = await client.GetAsync("/scalar/v1");
-        var scalarHtml = await scalarResponse.Content.ReadAsStringAsync();
+        var scalarResponse = await client.GetAsync("/scalar/v1", TestContext.Current.CancellationToken);
+        var scalarHtml = await scalarResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken);
 
         scalarResponse.EnsureSuccessStatusCode();
         Assert.Contains("SBV-Z API", scalarHtml, StringComparison.Ordinal);
@@ -170,8 +170,8 @@ public sealed class OpenApiEndpointTests
         using var application = new OpenApiApplicationFactory("Production");
         using var client = application.CreateClient();
 
-        var documentResponse = await client.GetAsync("/openapi/v1.json");
-        var scalarResponse = await client.GetAsync("/scalar/v1");
+        var documentResponse = await client.GetAsync("/openapi/v1.json", TestContext.Current.CancellationToken);
+        var scalarResponse = await client.GetAsync("/scalar/v1", TestContext.Current.CancellationToken);
 
         Assert.Equal(HttpStatusCode.NotFound, documentResponse.StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, scalarResponse.StatusCode);
@@ -196,10 +196,14 @@ public sealed class OpenApiEndpointTests
                         ["SBVZ_AUDIT_S3_BUCKET"] = "fictional-bucket",
                         ["SBVZ_AUDIT_S3_ENDPOINT"] = "https://storage.example",
                         ["SBVZ_AUDIT_S3_REGION"] = "fictional-region",
+                        ["SBVZ_AUDIT_S3_PREFIX"] = "audit",
                         ["SBVZ_AUDIT_S3_ACCESS_KEY_ID"] = "fictional-access-key",
                         ["SBVZ_AUDIT_S3_SECRET_ACCESS_KEY"] = "fictional-secret-key",
                         ["SBVZ_AUDIT_PATIENT_REFERENCE_KEY_ID"] = "test-v1",
-                        ["SBVZ_AUDIT_PATIENT_REFERENCE_KEY"] = ApiKey
+                        ["SBVZ_AUDIT_PATIENT_REFERENCE_KEY"] = ApiKey,
+                        ["SBVZ_ALLOWED_HOSTS"] = "localhost",
+                        ["SBVZ_ALERT_WEBHOOK_URL"] = string.Empty,
+                        ["SBVZ_ALERT_WEBHOOK_URL_FILE"] = string.Empty
                     });
             });
         }

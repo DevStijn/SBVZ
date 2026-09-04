@@ -7,4 +7,4 @@ public interface IAuditWriter
         CancellationToken cancellationToken = default);
 }
 
-public sealed record AuditWriteReceipt(string ObjectKey, string ContentSha256);
+public sealed record AuditWriteReceipt(string ObjectKey, string ContentIntegrity);

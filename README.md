@@ -41,7 +41,7 @@ Start de applicatie met hot reload:
 dotnet watch --project src/Sbvz.Api
 ```
 
-Het launch-profiel gebruikt `http://localhost:5000` en zet de omgeving op
+Het launch-profiel gebruikt `http://localhost:5080` en zet de omgeving op
 `Development`. De beschikbare lokale routes zijn:
 
 ```text
@@ -59,7 +59,7 @@ operaties wel naar de geconfigureerde auditopslag.
 ## Controles
 
 ```shell
-dotnet format SBVZ.sln --verify-no-changes --no-restore
+dotnet format SBVZ.sln --verify-no-changes --severity info --no-restore
 dotnet build SBVZ.sln --configuration Release
 dotnet test SBVZ.sln --configuration Release --no-build
 dotnet list SBVZ.sln package --vulnerable --include-transitive

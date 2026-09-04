@@ -56,6 +56,16 @@ internal sealed class SbvzXmlClient(
                 throw new SbvzProtocolException("SBV-Z returned an unexpected local reference.");
             }
 
+            if (query.Bsn is not null
+                && result.Result is SbvzResult.Good or SbvzResult.GoodWithDifferences
+                && !string.Equals(
+                    result.Answer?.Person?.Bsn,
+                    query.Bsn,
+                    StringComparison.Ordinal))
+            {
+                throw new SbvzProtocolException("SBV-Z returned a different BSN for a verification request.");
+            }
+
             if (!response.IsSuccessStatusCode)
             {
                 throw new SbvzProtocolException($"SBV-Z returned HTTP {(int)response.StatusCode}.");

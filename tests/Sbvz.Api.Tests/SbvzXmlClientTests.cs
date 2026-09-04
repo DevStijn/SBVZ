@@ -33,9 +33,7 @@ public sealed class SbvzXmlClientTests
             "M",
             null);
 
-        var response = await client.QueryAsync(
-            query,
-            "01990f73-4963-7c51-a54f-83d482033731");
+        var response = await client.QueryAsync(query, "01990f73-4963-7c51-a54f-83d482033731", TestContext.Current.CancellationToken);
 
         Assert.Equal(SbvzResult.Good, response.Result);
         Assert.Equal(SbvzConstants.AcceptanceEndpoint, handler.RequestUri);
@@ -79,11 +77,42 @@ public sealed class SbvzXmlClientTests
             null);
 
         var exception = await Assert.ThrowsAsync<SbvzProtocolException>(
-            () => client.QueryAsync(
-                query,
-                "01990f73-4963-7c51-a54f-83d482033731"));
+            () => client.QueryAsync(query, "01990f73-4963-7c51-a54f-83d482033731", TestContext.Current.CancellationToken));
 
         Assert.Equal("SBV-Z returned an unexpected local reference.", exception.Message);
+    }
+
+    [Fact]
+    public async Task RejectsDifferentBsnForVerificationRequest()
+    {
+        var handler = new RecordingHandler();
+        using var httpClient = new HttpClient(handler);
+        var client = new SbvzXmlClient(
+            new StaticHttpClientFactory(httpClient),
+            Options.Create(
+                new SbvzOptions
+                {
+                    Mode = nameof(SbvzMode.Acceptance),
+                    SubscriberNumber = "12345678"
+                }));
+        var query = new SbvzPersonQuery(
+            "111222333",
+            null,
+            null,
+            null,
+            "Test-GG-Gevonden",
+            "19700101",
+            null,
+            null,
+            "M",
+            null);
+
+        var exception = await Assert.ThrowsAsync<SbvzProtocolException>(
+            () => client.QueryAsync(query, "01990f73-4963-7c51-a54f-83d482033731", TestContext.Current.CancellationToken));
+
+        Assert.Equal(
+            "SBV-Z returned a different BSN for a verification request.",
+            exception.Message);
     }
 
     private sealed class StaticHttpClientFactory(HttpClient client) : IHttpClientFactory

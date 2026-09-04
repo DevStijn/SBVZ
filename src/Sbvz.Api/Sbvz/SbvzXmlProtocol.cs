@@ -6,6 +6,8 @@ namespace Sbvz.Api.Sbvz;
 
 internal static class SbvzXmlProtocol
 {
+    private const int MaximumInvestigationsPerCategory = 20;
+    private const int MaximumMessages = 20;
     private static readonly XNamespace Soap = SbvzConstants.SoapNamespace;
     private static readonly XNamespace Sbvz = SbvzConstants.XmlNamespace;
 
@@ -124,9 +126,9 @@ internal static class SbvzXmlProtocol
             throw new SbvzProtocolException("Successful SBV-Z response did not contain a valid BSN.");
         }
 
-        if (result is SbvzResult.Error && responseBsn is not null)
+        if (result is SbvzResult.Error && answerElement is not null)
         {
-            throw new SbvzProtocolException("Failed SBV-Z response unexpectedly contained a BSN.");
+            throw new SbvzProtocolException("Failed SBV-Z response unexpectedly contained answer data.");
         }
 
         return new SbvzQueryResponse(
@@ -193,7 +195,7 @@ internal static class SbvzXmlProtocol
             OptionalComparedValue(person, "Geboorteplaats", 40),
             OptionalComparedValue(person, "Geboorteland", 40),
             sex,
-            ParseInvestigation(
+            ParseInvestigations(
                 person,
                 "AanduidingGegevensInOnderzoekPersoon",
                 "DatumIngangOnderzoekPersoon"));
@@ -246,7 +248,7 @@ internal static class SbvzXmlProtocol
             OptionalText(address, "Woonplaatsnaam", 80),
             OptionalText(address, "Locatiebeschrijving", 35),
             OptionalText(address, "LandVanwaarIngeschreven", 40),
-            ParseInvestigation(
+            ParseInvestigations(
                 address,
                 "AanduidingGegevensInOnderzoekAdres",
                 "DatumIngangOnderzoekAdres"),
@@ -255,16 +257,35 @@ internal static class SbvzXmlProtocol
 
     private static SbvzRegistrationAnswer ParseRegistration(XElement registration)
     {
+        var suspensionReason = OptionalText(registration, "OmschrijvingRedenOpschorting", 33);
+        var disclosureRestriction = OptionalText(registration, "IndicatieGeheim", 100);
+
+        if (suspensionReason is not null
+            && suspensionReason is not ("Overlijden"
+                or "Emigratie"
+                or "Ministerieel besluit"
+                or "Persoonslijst aangelegd in de RNI"))
+        {
+            throw new SbvzProtocolException("SBV-Z response contained an invalid suspension reason.");
+        }
+
+        if (disclosureRestriction is not null
+            && disclosureRestriction is not ("Geen beperking"
+                or "Er is een beperking op de gegevensverstrekking van toepassing"))
+        {
+            throw new SbvzProtocolException("SBV-Z response contained an invalid disclosure restriction.");
+        }
+
         return new SbvzRegistrationAnswer(
-            OptionalText(registration, "OmschrijvingRedenOpschorting", 33),
-            OptionalText(registration, "IndicatieGeheim", 100));
+            suspensionReason,
+            disclosureRestriction);
     }
 
     private static SbvzDeathAnswer ParseDeath(XElement death)
     {
         return new SbvzDeathAnswer(
             OptionalDate(death, "DatumOverlijden"),
-            ParseInvestigation(
+            ParseInvestigations(
                 death,
                 "AanduidingGegevensInOnderzoekOverlijden",
                 "DatumIngangOnderzoekOverlijden"));
@@ -283,29 +304,52 @@ internal static class SbvzXmlProtocol
             : new SbvzForeignAddress(line1, line2, line3, country, startDate);
     }
 
-    private static SbvzInvestigation? ParseInvestigation(
+    private static SbvzInvestigation[] ParseInvestigations(
         XElement parent,
         string descriptionName,
         string startDateName)
     {
-        var description = OptionalText(parent, descriptionName, 50);
-        var startDate = OptionalDate(parent, startDateName);
+        var descriptions = parent
+            .Elements(Sbvz + descriptionName)
+            .Take(MaximumInvestigationsPerCategory + 1)
+            .ToArray();
+        var startDates = parent
+            .Elements(Sbvz + startDateName)
+            .Take(MaximumInvestigationsPerCategory + 1)
+            .ToArray();
 
-        return description is null && startDate is null
-            ? null
-            : new SbvzInvestigation(description, startDate);
+        if (descriptions.Length > MaximumInvestigationsPerCategory
+            || startDates.Length > MaximumInvestigationsPerCategory)
+        {
+            throw new SbvzProtocolException(
+                $"SBV-Z response contained too many {descriptionName} values.");
+        }
+
+        return [.. Enumerable
+            .Range(0, Math.Max(descriptions.Length, startDates.Length))
+            .Select(index => new SbvzInvestigation(
+                index < descriptions.Length
+                    ? ReadOptionalText(descriptions[index], descriptionName, 50)
+                    : null,
+                index < startDates.Length
+                    ? ReadOptionalDate(startDates[index], startDateName)
+                    : null))];
     }
 
     private static SbvzMessage[] ParseMessages(XElement responseMessage)
     {
         var messages = responseMessage
             .Elements(Sbvz + "Melding")
+            .Take(MaximumMessages + 1)
             .Select(ParseMessage)
             .ToArray();
 
-        if (messages.Length == 0)
+        if (messages.Length == 0 || messages.Length > MaximumMessages)
         {
-            throw new SbvzProtocolException("SBV-Z response did not contain a result message.");
+            throw new SbvzProtocolException(
+                messages.Length == 0
+                    ? "SBV-Z response did not contain a result message."
+                    : "SBV-Z response contained too many result messages.");
         }
 
         return messages;
@@ -397,6 +441,37 @@ internal static class SbvzXmlProtocol
         }
 
         return value;
+    }
+
+    private static string? ReadOptionalDate(XElement element, string localName)
+    {
+        var value = ReadOptionalText(element, localName, 8);
+
+        if (!string.IsNullOrEmpty(value)
+            && !DateOnly.TryParseExact(
+                value,
+                "yyyyMMdd",
+                CultureInfo.InvariantCulture,
+                DateTimeStyles.None,
+                out _))
+        {
+            throw new SbvzProtocolException($"SBV-Z response field {localName} contained an invalid date.");
+        }
+
+        return value;
+    }
+
+    private static string? ReadOptionalText(
+        XElement element,
+        string localName,
+        int maximumLength)
+    {
+        if (element.Value.Length > maximumLength)
+        {
+            throw new SbvzProtocolException($"SBV-Z response field {localName} exceeded its maximum length.");
+        }
+
+        return element.Value.Length == 0 ? null : element.Value;
     }
 
     private static string RequiredText(XElement parent, string localName, int maximumLength)

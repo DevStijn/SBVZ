@@ -59,7 +59,7 @@ internal sealed class MockSbvzClient : ISbvzClient
                 new SbvzComparedValue("Amsterdam", false),
                 new SbvzComparedValue("Nederland", false),
                 new SbvzComparedValue(TestSex, false),
-                null),
+                []),
             new SbvzAddressAnswer(
                 new SbvzComparedValue("Amsterdam", false),
                 "Woonadres",
@@ -73,7 +73,7 @@ internal sealed class MockSbvzClient : ISbvzClient
                 "Amsterdam",
                 string.Empty,
                 string.Empty,
-                null,
+                [],
                 null),
             new SbvzRegistrationAnswer(null, "Geen beperking"),
             null);
